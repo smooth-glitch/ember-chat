@@ -1,0 +1,95 @@
+%%% Google/Apple Sign-In credentials, kept in one place so activating either
+%%% provider is "fill in these values and restart," not a code change.
+%%%
+%%% Copy this file to oauth_config.erl (which is gitignored -- never commit
+%%% real credentials) and fill in the values below.
+%%%
+%%% === Google Sign-In: how to get real values ===
+%%%   1. https://console.cloud.google.com/ -> create a project (free).
+%%%   2. APIs & Services -> OAuth consent screen -> configure it (External,
+%%%      fill in app name/support email -- "Testing" publish status is fine
+%%%      for personal/friends use, no Google review needed for a handful of
+%%%      test users added on that same screen).
+%%%   3. APIs & Services -> Credentials -> Create Credentials -> OAuth
+%%%      client ID -> Application type "Web application."
+%%%   4. Authorized redirect URIs: add EXACTLY
+%%%        http://localhost:8080/auth/google/callback
+%%%      for local testing. Google allows plain http:// only for
+%%%      "localhost" -- any other host (including an ngrok URL) MUST be
+%%%      https and must be added here verbatim, and re-added every time
+%%%      that URL changes. ngrok's free tier gives you a new random URL on
+%%%      every restart, so Google sign-in will only work over the *current*
+%%%      tunnel until either (a) you add that exact URL here and in Google's
+%%%      console each time, or (b) you get a stable ngrok domain (free tier
+%%%      includes one) or real hosting. Signing in via http://localhost:8080
+%%%      directly always works regardless.
+%%%   5. Copy the generated Client ID and Client Secret into
+%%%      ?GOOGLE_CLIENT_ID / ?GOOGLE_CLIENT_SECRET below.
+%%%
+%%% === Apple Sign-In: how to get real values ===
+%%%   Needs an Apple Developer Program membership (paid, $99/year) -- there
+%%%   is no free tier for this, unlike Google. Steps, roughly:
+%%%   1. developer.apple.com -> Certificates, IDs & Profiles -> Identifiers
+%%%      -> register an App ID with "Sign in with Apple" enabled.
+%%%   2. Identifiers -> register a Services ID (this is the "client ID" for
+%%%      web sign-in) -> configure "Sign in with Apple" on it -> add your
+%%%      domain and the redirect URI (same https-only caveat as Google
+%%%      above, Apple has no localhost exception at all -- Apple Sign-In
+%%%      cannot be tested over plain http://localhost, only over a real
+%%%      https domain, e.g. a stable ngrok URL).
+%%%   3. Keys -> create a new key with "Sign in with Apple" enabled -> note
+%%%      the Key ID and download the .p8 private key file ONCE (Apple won't
+%%%      let you download it again).
+%%%   4. Fill in ?APPLE_CLIENT_ID (the Services ID), ?APPLE_TEAM_ID (top
+%%%      right of the developer portal), ?APPLE_KEY_ID, and either paste the
+%%%      .p8 file's contents into ?APPLE_PRIVATE_KEY_PEM or point
+%%%      apple_private_key/0 at wherever you saved that file.
+%%%   Apple's client "secret" isn't a static string like Google's -- it's a
+%%%   short-lived ES256-signed JWT chat_oauth.erl generates per request from
+%%%   this private key (see chat_oauth:apple_client_secret/0).
+-module(oauth_config).
+-export([google_client_id/0, google_client_secret/0,
+         apple_client_id/0, apple_team_id/0, apple_key_id/0, apple_private_key_pem/0,
+         session_secret/0, is_google_configured/0, is_apple_configured/0]).
+
+-define(GOOGLE_CLIENT_ID, "REPLACE_WITH_YOUR_GOOGLE_CLIENT_ID").
+-define(GOOGLE_CLIENT_SECRET, "REPLACE_WITH_YOUR_GOOGLE_CLIENT_SECRET").
+
+-define(APPLE_CLIENT_ID, "REPLACE_WITH_YOUR_APPLE_SERVICES_ID").
+-define(APPLE_TEAM_ID, "REPLACE_WITH_YOUR_APPLE_TEAM_ID").
+-define(APPLE_KEY_ID, "REPLACE_WITH_YOUR_APPLE_KEY_ID").
+-define(APPLE_PRIVATE_KEY_PEM, "").
+
+google_client_id() -> ?GOOGLE_CLIENT_ID.
+google_client_secret() -> ?GOOGLE_CLIENT_SECRET.
+apple_client_id() -> ?APPLE_CLIENT_ID.
+apple_team_id() -> ?APPLE_TEAM_ID.
+apple_key_id() -> ?APPLE_KEY_ID.
+apple_private_key_pem() -> ?APPLE_PRIVATE_KEY_PEM.
+
+is_google_configured() ->
+    not lists:prefix("REPLACE_WITH", ?GOOGLE_CLIENT_ID) andalso
+    not lists:prefix("REPLACE_WITH", ?GOOGLE_CLIENT_SECRET).
+
+is_apple_configured() ->
+    not lists:prefix("REPLACE_WITH", ?APPLE_CLIENT_ID) andalso
+    not lists:prefix("REPLACE_WITH", ?APPLE_TEAM_ID) andalso
+    not lists:prefix("REPLACE_WITH", ?APPLE_KEY_ID) andalso
+    ?APPLE_PRIVATE_KEY_PEM =/= "".
+
+%% Signs session cookies (see chat_web.erl's make_session_cookie/1 and
+%% verify_session_cookie/1) -- generated once per node boot rather than
+%% hardcoded, so it's never the same value twice across restarts and never
+%% needs to be a secret anyone has to manage. The tradeoff: restarting the
+%% server invalidates every existing session cookie, requiring a fresh
+%% sign-in -- an acceptable cost given how rarely this dev server restarts
+%% and how much simpler it is than persisting a secret to disk.
+session_secret() ->
+    case persistent_term:get({?MODULE, session_secret}, undefined) of
+        undefined ->
+            Secret = crypto:strong_rand_bytes(32),
+            persistent_term:put({?MODULE, session_secret}, Secret),
+            Secret;
+        Secret ->
+            Secret
+    end.

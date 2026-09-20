@@ -1,0 +1,400 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		20BAE3647C251EFE16C777F8 /* MediaResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2AAACC9D7B2264AAB11427A1 /* MediaResult.swift */; };
+		2A7C75722CEED1C081DE73EA /* Message.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BC26FA7428BD717E3F3B69E /* Message.swift */; };
+		2B3432E33B4DB65ECA520790 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */; };
+		2C6535D07C9C6ADC081B0A2E /* MediaPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91239B8E4D984D6A1270D579 /* MediaPickerView.swift */; };
+		3DA9CC19D0E28D64A7AF30A7 /* AnimatedGIFView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */; };
+		430B24BE2501731045C4C2B4 /* ChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C067E529726F2296D95ED855 /* ChatClient.swift */; };
+		5C298666F3EFA10D9314F6DF /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 078D1D989A90D0AF7F3DCB28 /* Conversation.swift */; };
+		6F87C303E5C39EC217443828 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D9D88149B5D5173C75F73A1 /* CryptoBox.swift */; };
+		77499C61D5A7A51062740001 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3E89E76FECB2B71061F10F9 /* Theme.swift */; };
+		78B9CA4A2393CF8AB9B1E469 /* EmberApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DC635EBE2AC3C4079688D51C /* EmberApp.swift */; };
+		7D78F2E708DC62068AC25272 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CCAECECB01C03E7C4363DCA5 /* Assets.xcassets */; };
+		8ADB53183546F5EE36762DCD /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07F23BB3BFDA94B1373C79FA /* AudioRecorder.swift */; };
+		8B4D0E1042AB305214A3B64A /* AudioMessagePlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004C9A3B3C508CF0F19CF8B0 /* AudioMessagePlayer.swift */; };
+		8DB4677584447F308B8CE621 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85709B41E581C9F512DFA4F9 /* LoginView.swift */; };
+		9361B3FC1A5761D008CDD9B2 /* MessageActionOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83613AB17D5C5FA78F9C9D48 /* MessageActionOverlay.swift */; };
+		E605C3DD205B393B97CA990E /* MessageBubbleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 795E438C232B7449A2322185 /* MessageBubbleView.swift */; };
+		F72B73C6ED1547EBD3259413 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1466EEC6F88D1C678F1BA0E3 /* ChatView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		004C9A3B3C508CF0F19CF8B0 /* AudioMessagePlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMessagePlayer.swift; sourceTree = "<group>"; };
+		078D1D989A90D0AF7F3DCB28 /* Conversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Conversation.swift; sourceTree = "<group>"; };
+		07F23BB3BFDA94B1373C79FA /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+		1466EEC6F88D1C678F1BA0E3 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
+		27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedGIFView.swift; sourceTree = "<group>"; };
+		2AAACC9D7B2264AAB11427A1 /* MediaResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaResult.swift; sourceTree = "<group>"; };
+		2BC26FA7428BD717E3F3B69E /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
+		3D9D88149B5D5173C75F73A1 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
+		795E438C232B7449A2322185 /* MessageBubbleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageBubbleView.swift; sourceTree = "<group>"; };
+		83613AB17D5C5FA78F9C9D48 /* MessageActionOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageActionOverlay.swift; sourceTree = "<group>"; };
+		85709B41E581C9F512DFA4F9 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+		91239B8E4D984D6A1270D579 /* MediaPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPickerView.swift; sourceTree = "<group>"; };
+		9B5E3461D20AC34B06E3EDF9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		C067E529726F2296D95ED855 /* ChatClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatClient.swift; sourceTree = "<group>"; };
+		CCAECECB01C03E7C4363DCA5 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D1E129474145FB033E3BBB86 /* Ember.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Ember.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D3E89E76FECB2B71061F10F9 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		DC635EBE2AC3C4079688D51C /* EmberApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmberApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		233CA52765D6C49205F221FF /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D1E129474145FB033E3BBB86 /* Ember.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		56E6B0F7A59E63C82AB86141 /* Ember */ = {
+			isa = PBXGroup;
+			children = (
+				CCAECECB01C03E7C4363DCA5 /* Assets.xcassets */,
+				DC635EBE2AC3C4079688D51C /* EmberApp.swift */,
+				9B5E3461D20AC34B06E3EDF9 /* Info.plist */,
+				BF77283AB57601F2E6B560F3 /* Models */,
+				CCDFD90A4792A717AB5F67E6 /* Networking */,
+				9F4A94C5AEE32B83C5F88EF7 /* Theme */,
+				D19B0E36EC4E6A5B26CC7272 /* Views */,
+			);
+			path = Ember;
+			sourceTree = "<group>";
+		};
+		9F4A94C5AEE32B83C5F88EF7 /* Theme */ = {
+			isa = PBXGroup;
+			children = (
+				D3E89E76FECB2B71061F10F9 /* Theme.swift */,
+			);
+			path = Theme;
+			sourceTree = "<group>";
+		};
+		BBC0B4313EBF53B16DC19257 = {
+			isa = PBXGroup;
+			children = (
+				56E6B0F7A59E63C82AB86141 /* Ember */,
+				233CA52765D6C49205F221FF /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		BF77283AB57601F2E6B560F3 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				078D1D989A90D0AF7F3DCB28 /* Conversation.swift */,
+				2AAACC9D7B2264AAB11427A1 /* MediaResult.swift */,
+				2BC26FA7428BD717E3F3B69E /* Message.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		CCDFD90A4792A717AB5F67E6 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				07F23BB3BFDA94B1373C79FA /* AudioRecorder.swift */,
+				C067E529726F2296D95ED855 /* ChatClient.swift */,
+				3D9D88149B5D5173C75F73A1 /* CryptoBox.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		D19B0E36EC4E6A5B26CC7272 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */,
+				004C9A3B3C508CF0F19CF8B0 /* AudioMessagePlayer.swift */,
+				1466EEC6F88D1C678F1BA0E3 /* ChatView.swift */,
+				21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */,
+				85709B41E581C9F512DFA4F9 /* LoginView.swift */,
+				91239B8E4D984D6A1270D579 /* MediaPickerView.swift */,
+				83613AB17D5C5FA78F9C9D48 /* MessageActionOverlay.swift */,
+				795E438C232B7449A2322185 /* MessageBubbleView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3E853DD93E303CC86CD1FA7F /* Ember */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B3B776477B6BBC134545AE38 /* Build configuration list for PBXNativeTarget "Ember" */;
+			buildPhases = (
+				60A89B85028B91AE593FB976 /* Sources */,
+				8B6B0FFA7E15F621C34D6356 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Ember;
+			packageProductDependencies = (
+			);
+			productName = Ember;
+			productReference = D1E129474145FB033E3BBB86 /* Ember.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		60EE479878F0F38411A15B19 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					3E853DD93E303CC86CD1FA7F = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 8E26098F6346F3E7D139037F /* Build configuration list for PBXProject "Ember" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BBC0B4313EBF53B16DC19257;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 233CA52765D6C49205F221FF /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3E853DD93E303CC86CD1FA7F /* Ember */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8B6B0FFA7E15F621C34D6356 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7D78F2E708DC62068AC25272 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		60A89B85028B91AE593FB976 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3DA9CC19D0E28D64A7AF30A7 /* AnimatedGIFView.swift in Sources */,
+				8B4D0E1042AB305214A3B64A /* AudioMessagePlayer.swift in Sources */,
+				8ADB53183546F5EE36762DCD /* AudioRecorder.swift in Sources */,
+				430B24BE2501731045C4C2B4 /* ChatClient.swift in Sources */,
+				F72B73C6ED1547EBD3259413 /* ChatView.swift in Sources */,
+				5C298666F3EFA10D9314F6DF /* Conversation.swift in Sources */,
+				2B3432E33B4DB65ECA520790 /* ConversationListView.swift in Sources */,
+				6F87C303E5C39EC217443828 /* CryptoBox.swift in Sources */,
+				78B9CA4A2393CF8AB9B1E469 /* EmberApp.swift in Sources */,
+				8DB4677584447F308B8CE621 /* LoginView.swift in Sources */,
+				2C6535D07C9C6ADC081B0A2E /* MediaPickerView.swift in Sources */,
+				20BAE3647C251EFE16C777F8 /* MediaResult.swift in Sources */,
+				2A7C75722CEED1C081DE73EA /* Message.swift in Sources */,
+				9361B3FC1A5761D008CDD9B2 /* MessageActionOverlay.swift in Sources */,
+				E605C3DD205B393B97CA990E /* MessageBubbleView.swift in Sources */,
+				77499C61D5A7A51062740001 /* Theme.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		9CC77524DDFFA3800C9DD95D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = WCMWXN53L4;
+				INFOPLIST_FILE = Ember/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ember.chat.app;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A8B77AE3A697627F3CD67328 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		E48F6C284003A0B61D23D156 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = WCMWXN53L4;
+				INFOPLIST_FILE = Ember/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.ember.chat.app;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		F1B0335DBC17697999A2175E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8E26098F6346F3E7D139037F /* Build configuration list for PBXProject "Ember" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F1B0335DBC17697999A2175E /* Debug */,
+				A8B77AE3A697627F3CD67328 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		B3B776477B6BBC134545AE38 /* Build configuration list for PBXNativeTarget "Ember" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9CC77524DDFFA3800C9DD95D /* Debug */,
+				E48F6C284003A0B61D23D156 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 60EE479878F0F38411A15B19 /* Project object */;
+}

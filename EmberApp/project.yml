@@ -1,0 +1,36 @@
+name: Ember
+options:
+  bundleIdPrefix: com.ember.chat
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+targets:
+  Ember:
+    type: application
+    platform: iOS
+    sources:
+      - path: Ember
+    info:
+      path: Ember/Info.plist
+      properties:
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDisplayName: Ember
+        NSMicrophoneUsageDescription: Ember needs microphone access to record voice notes.
+        NSPhotoLibraryUsageDescription: Ember needs photo access to attach images to messages.
+        NSCameraUsageDescription: Ember needs camera access to take photos to share in chat.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - ember
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ember.chat.app
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic

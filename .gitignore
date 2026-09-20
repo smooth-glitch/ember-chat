@@ -1,0 +1,29 @@
+# Real OAuth credentials -- never commit these. Copy oauth_config.erl.example
+# to oauth_config.erl and fill in your own values (see that file for how).
+src/oauth_config.erl
+
+# Build output -- regenerate with build.ps1 (Windows) or erlc (Mac/Linux)
+ebin/
+
+# Local Mnesia database (chat history, accounts, uploaded-file index)
+Mnesia.*/
+
+# User-uploaded media (images/gifs/voice notes saved by the running server)
+uploads/*
+!uploads/.gitkeep
+
+# Runtime logs / crash dumps
+*.log
+srv.out
+srv.err
+erl_crash.dump
+
+# macOS
+.DS_Store
+
+# Xcode (EmberApp) -- regenerate the .xcodeproj from project.yml via xcodegen
+EmberApp/Ember.xcodeproj/xcuserdata/
+EmberApp/Ember.xcodeproj/project.xcworkspace/xcuserdata/
+EmberApp/DerivedData/
+EmberApp/build/
+*.xcuserstate
