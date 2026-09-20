@@ -28,10 +28,12 @@ struct ChatView: View {
                                 MessageBubbleView(
                                     message: message,
                                     lookupMessage: client.lookupMessage,
+                                    avatarURL: client.profiles[message.from]?.avatar,
                                     onLongPress: { actionSheetMessage = message },
                                     onSwipeReply: { replyingTo = message }
                                 )
                                 .id(message.id)
+                                .onAppear { client.fetchProfile(for: message.from) }
                                 .padding(.horizontal, 14)
                             }
                         }
@@ -213,7 +215,7 @@ struct ChatView: View {
         HStack(spacing: 10) {
             Circle().fill(Theme.danger).frame(width: 10, height: 10)
             Text(formatted(recorder.elapsed)).font(.system(size: 14, weight: .medium).monospacedDigit())
-            Spacer()
+            waveformView
             Button {
                 _ = recorder.stop(discard: true)
             } label: {
@@ -235,6 +237,22 @@ struct ChatView: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+    }
+
+    /// Bars driven by AudioRecorder.levels, which is the recorder's own
+    /// live metering -- moves in real time with actual mic input rather
+    /// than a canned animation.
+    private var waveformView: some View {
+        HStack(spacing: 3) {
+            ForEach(Array(recorder.levels.enumerated()), id: \.offset) { _, level in
+                Capsule()
+                    .fill(Theme.danger)
+                    .frame(width: 3, height: 4 + level * 20)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 24)
+        .animation(.easeOut(duration: 0.08), value: recorder.levels)
     }
 
     private func formatted(_ t: TimeInterval) -> String {

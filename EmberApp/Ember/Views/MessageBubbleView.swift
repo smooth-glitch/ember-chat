@@ -7,6 +7,10 @@ struct MessageBubbleView: View {
     /// from what this client already has locally, never a server round
     /// trip.
     let lookupMessage: (Int) -> ChatMessage?
+    /// Resolved by the caller (ChatView) from client.profiles so reading it
+    /// there registers the @Observable dependency -- a profile change then
+    /// re-renders every bubble live, not just ones sent after it.
+    var avatarURL: String?
     let onLongPress: () -> Void
     let onSwipeReply: () -> Void
 
@@ -30,14 +34,26 @@ struct MessageBubbleView: View {
                 if message.out { Spacer(minLength: 40) }
 
                 if !message.out {
-                    Circle()
-                        .fill(Theme.avatarColor(for: message.from))
-                        .frame(width: 28, height: 28)
-                        .overlay {
+                    ZStack {
+                        Circle().fill(Theme.avatarColor(for: message.from))
+                        if let avatarURL, let url = URL(string: avatarURL) {
+                            AsyncImage(url: url) { phase in
+                                if case .success(let image) = phase {
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                } else {
+                                    Text(String(message.from.prefix(1)).uppercased())
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                            .clipShape(.circle)
+                        } else {
                             Text(String(message.from.prefix(1)).uppercased())
                                 .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(.white)
                         }
+                    }
+                    .frame(width: 28, height: 28)
                 }
 
                 VStack(alignment: message.out ? .trailing : .leading, spacing: 3) {

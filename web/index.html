@@ -30,7 +30,10 @@
          what actually get Safari to launch it full-screen, no browser
          chrome, from a home-screen tap. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
     <meta name="apple-mobile-web-app-title" content="Ember" />
     <style>
       :root {
@@ -2566,7 +2569,13 @@
 
       <div id="sidebar">
         <div class="me">
-          <div class="who" id="me-who" role="button" tabindex="0" aria-label="Edit profile">
+          <div
+            class="who"
+            id="me-who"
+            role="button"
+            tabindex="0"
+            aria-label="Edit profile"
+          >
             <div class="avatar" id="me-avatar"></div>
             <div>
               <div class="title">Ember</div>
@@ -2708,7 +2717,8 @@
             <span id="recording-dot"></span>
             <span id="recording-time">0:00</span>
             <div id="recording-wave" aria-hidden="true">
-              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span><span></span
+              ><span></span><span></span><span></span>
             </div>
             <button
               id="recording-cancel"
@@ -2917,7 +2927,12 @@
       <button type="button" id="action-copy" role="menuitem">
         <span class="action-icon">&#128203;</span> Copy Text
       </button>
-      <button type="button" id="action-delete" class="hidden danger" role="menuitem">
+      <button
+        type="button"
+        id="action-delete"
+        class="hidden danger"
+        role="menuitem"
+      >
         <span class="action-icon">&#128465;</span> Delete for Everyone
       </button>
     </div>
@@ -3172,9 +3187,7 @@
         var profileAvatarPreview = document.getElementById(
           "profile-avatar-preview",
         );
-        var profilePhotoInput = document.getElementById(
-          "profile-photo-input",
-        );
+        var profilePhotoInput = document.getElementById("profile-photo-input");
         var profileStatusInput = document.getElementById(
           "profile-status-input",
         );
@@ -4504,8 +4517,10 @@
             renderMessageContent(bubble, msg.text);
             if (msg.out && msg.private) {
               var ticks = document.createElement("span");
-              var delivered = msg.status === "delivered" || msg.status === "read";
-              ticks.className = "ticks" + (msg.status === "read" ? " read" : "");
+              var delivered =
+                msg.status === "delivered" || msg.status === "read";
+              ticks.className =
+                "ticks" + (msg.status === "read" ? " read" : "");
               ticks.textContent = delivered ? "✓✓" : "✓";
               bubble.appendChild(ticks);
             }
