@@ -46,8 +46,8 @@
        its typical background. */
         --bg: #f5f5f7;
         --panel: #ffffff;
-        --header: #1c1c1e;
-        --header-2: #2c2c2e;
+        --header: #ffffff;
+        --header-2: #f5f5f7;
         --accent: #5856d6;
         --accent-2: #8482e0;
         --accent-gradient: linear-gradient(135deg, #5856d6, #7a78e0);
@@ -413,7 +413,7 @@
       }
       #sidebar .me {
         background: var(--header);
-        color: white;
+        color: var(--text);
         /* Must match #topbar's vertical padding AND min-height exactly --
            both bars sit side-by-side at the same height on desktop. Padding
            alone isn't enough to guarantee this: #topbar's own .icon-btns
@@ -478,6 +478,15 @@
       @media (hover: hover) and (pointer: fine) {
         .icon-btn:hover {
           background: rgba(255, 255, 255, 0.12);
+        }
+        /* #topbar/#sidebar .me now follow light/dark theme instead of
+           always being dark (see --header), so their icon buttons need a
+           dark hover tint in light mode -- the white one above is only
+           right against a genuinely dark bar, restored for dark mode
+           below. */
+        #topbar .icon-btn:hover,
+        #sidebar .me .icon-btn:hover {
+          background: rgba(0, 0, 0, 0.06);
         }
       }
       .icon-btn:active {
@@ -673,7 +682,7 @@
       }
       #topbar {
         background: var(--header);
-        color: white;
+        color: var(--text);
         min-height: 68px;
         padding: 12px 16px;
         display: flex;
@@ -1717,31 +1726,35 @@
         gap: 6px;
         align-content: start;
       }
-      /* aspect-ratio belongs on the grid item (.gif-cell) itself, not the
-         img inside it: an img sized with height:100% + aspect-ratio has
-         nothing definite to resolve height:100% against (its own parent's
-         height depends on ITS content, i.e. the img) -- Chrome tolerates
-         that circular case by falling back to the aspect-ratio, but Safari/
-         WebKit collapses it down to almost nothing, squashing every cell
-         into a thin strip. Giving the button a definite aspect-ratio (a
-         grid item, which CSS Grid sizes unambiguously) and letting the img
-         just fill 100% of that already-sized box avoids the cycle entirely. */
+      /* Square cells via the classic padding-top(100%) box, not the
+         aspect-ratio property: measured live in this grid, aspect-ratio
+         alone left every implicit row track only ~14px tall regardless of
+         the item's actual 148px-square rendered size (row auto-sizing
+         wasn't picking up the aspect-ratio-derived height at all), so
+         every row overlapped the next by ~85% and read as thin sliced
+         color bands instead of a clean grid. padding-top's percentage
+         resolves against the item's own already-known column width and is
+         real box-model height -- always included in track sizing, unlike
+         aspect-ratio here. */
       .gif-cell {
         display: block;
+        position: relative;
         width: 100%;
-        aspect-ratio: 1 / 1;
-        border: none;
         padding: 0;
+        padding-top: 100%;
+        height: 0;
+        border: none;
         background: none;
         border-radius: 8px;
         overflow: hidden;
-        line-height: 0;
         transition:
           transform 0.1s var(--ease),
           opacity 0.1s ease;
       }
       .gif-cell img {
         display: block;
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
         object-fit: cover;
@@ -2131,6 +2144,12 @@
         }
       }
       @media (prefers-color-scheme: dark) and (hover: hover) and (pointer: fine) {
+        #topbar .icon-btn:hover,
+        #sidebar .me .icon-btn:hover {
+          background: rgba(255, 255, 255, 0.12);
+        }
+      }
+      @media (prefers-color-scheme: dark) and (hover: hover) and (pointer: fine) {
         .row-item:hover {
           background: #2c2c2e;
         }
@@ -2207,17 +2226,23 @@
      the fallback rule below only *overrides*, so an unsupported feature
      query simply never fires and glass stays on, which is the safe
      direction to fail in). */
+      /* Light-mode tint here -- previously this was the same dark charcoal
+         gradient unconditionally in both modes (a leftover from when the
+         header was always dark regardless of theme), so a light-theme user
+         saw a grey/dark bar against otherwise-white chrome. The matching
+         dark-mode gradient is restored below under
+         prefers-color-scheme:dark, same visual as before in that mode. */
       html.liquid-glass #topbar,
       html.liquid-glass #sidebar .me {
         background: linear-gradient(
           160deg,
-          rgba(40, 40, 46, 0.5),
-          rgba(20, 20, 24, 0.65)
+          rgba(255, 255, 255, 0.66),
+          rgba(255, 255, 255, 0.48)
         );
         backdrop-filter: blur(28px) saturate(230%) brightness(1.05);
         -webkit-backdrop-filter: blur(28px) saturate(230%) brightness(1.05);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.55);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
       }
       html.liquid-glass #sidebar {
         background: rgba(255, 255, 255, 0.46);
@@ -2319,6 +2344,16 @@
         );
       }
       @media (prefers-color-scheme: dark) {
+        html.liquid-glass #topbar,
+        html.liquid-glass #sidebar .me {
+          background: linear-gradient(
+            160deg,
+            rgba(40, 40, 46, 0.5),
+            rgba(20, 20, 24, 0.65)
+          );
+          border-bottom-color: rgba(255, 255, 255, 0.14);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
         html.liquid-glass #sidebar,
         html.liquid-glass .modal,
         html.liquid-glass .toast,
