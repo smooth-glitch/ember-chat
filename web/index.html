@@ -3728,7 +3728,12 @@
           var entry = messagesById.get(Number(row.dataset.msgId));
           if (!entry) return;
           e.preventDefault();
-          openMessageActions(bubble, entry.msg, entry.convKey);
+          // Action menu only, not the combined touch sheet -- reactions are
+          // already one click away via the always-visible hover icon on
+          // desktop, and opening both here was overlapping/colliding.
+          var rect = bubble.getBoundingClientRect();
+          openMessageActionMenu(rect, rect, entry.msg, entry.convKey);
+          messageActionsOpenedAt = Date.now();
         });
 
         // ---- long-press on a message: react + reply/copy together ----
@@ -5132,6 +5137,12 @@
           meStatus.textContent = myStatus || "";
           meStatus.classList.toggle("hidden", !myStatus);
           profileCache.set(myName, { avatar: myAvatarUrl, status: myStatus });
+          // Refresh every already-rendered avatar for you, not just future
+          // ones -- message rows are built once at send/receive time and
+          // never told to re-check profileCache later on their own.
+          renderChatList();
+          renderOnlineList();
+          renderMessagesFull();
         }
         function openProfileModal() {
           profileAvatarPreview.innerHTML = "";
