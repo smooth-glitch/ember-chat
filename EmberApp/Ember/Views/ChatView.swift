@@ -65,6 +65,10 @@ struct ChatView: View {
                         UIPasteboard.general.string = actionSheetMessage.text
                         self.actionSheetMessage = nil
                     },
+                    onDelete: {
+                        client.deleteMessage(in: convKey, messageID: actionSheetMessage.id)
+                        self.actionSheetMessage = nil
+                    },
                     onDismiss: { self.actionSheetMessage = nil }
                 )
                 .transition(.opacity)

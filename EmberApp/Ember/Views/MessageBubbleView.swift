@@ -102,6 +102,12 @@ struct MessageBubbleView: View {
     @ViewBuilder
     private var bubbleContent: some View {
         VStack(alignment: .leading, spacing: 4) {
+            if message.deleted {
+                Text("This message was deleted")
+                    .font(.system(size: 15))
+                    .italic()
+                    .foregroundStyle(message.out ? .white.opacity(0.85) : Theme.muted)
+            } else {
             if let replyTo = message.replyTo {
                 replyQuote(for: replyTo)
             }
@@ -140,6 +146,7 @@ struct MessageBubbleView: View {
                         .font(.system(size: 11))
                         .foregroundStyle(status == .read ? Color(hex: 0x4A_E3B5) : .white.opacity(0.75))
                 }
+            }
             }
         }
         .padding(.horizontal, 14)

@@ -203,6 +203,19 @@ final class ChatClient {
         }
     }
 
+    /// Server re-checks that this client is actually the original sender
+    /// before honoring it (see chat_store:delete_message/2) -- this is just
+    /// the send side, the resulting "deleted"/"dm_deleted"/"group_deleted"
+    /// push (handled below) is what actually updates the message.
+    func deleteMessage(in convKey: String, messageID: Int) {
+        guard let conv = conversations[convKey] else { return }
+        switch conv.kind {
+        case .global: send(raw: "/delete global \(messageID)")
+        case .dm: send(raw: "/delete dm \(conv.title) \(messageID)")
+        case .group: send(raw: "/delete group \(conv.title) \(messageID)")
+        }
+    }
+
     /// Empty query returns Giphy's trending results, same as the web
     /// client's initial panel-open behavior.
     func searchGifs(_ query: String) {
@@ -459,7 +472,7 @@ final class ChatClient {
             let historical: [ChatMessage] = list.compactMap { item in
                 guard let id = item["id"] as? Int, let from = item["from"] as? String, let text = item["text"] as? String else { return nil }
                 let decoded = dmPartner.map { decryptIfNeeded(text, from: $0) } ?? text
-                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat)
+                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat, deleted: (item["deleted"] as? Bool) ?? false)
                 messagesByID[id] = (key, msg)
                 return msg
             }
@@ -495,6 +508,15 @@ final class ChatClient {
             guard let messageID = json["messageId"] as? Int, let (key, _) = messagesByID[messageID], var conv = conversations[key],
                   let index = conv.messages.firstIndex(where: { $0.id == messageID }) else { return }
             conv.messages[index].reactions = parseReactions(json["reactions"])
+            conversations[key] = conv
+            messagesByID[messageID]?.message = conv.messages[index]
+
+        case "deleted", "dm_deleted", "group_deleted":
+            guard let messageID = json["messageId"] as? Int, let (key, _) = messagesByID[messageID], var conv = conversations[key],
+                  let index = conv.messages.firstIndex(where: { $0.id == messageID }) else { return }
+            conv.messages[index].deleted = true
+            conv.messages[index].text = ""
+            conv.messages[index].reactions = []
             conversations[key] = conv
             messagesByID[messageID]?.message = conv.messages[index]
 

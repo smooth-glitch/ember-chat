@@ -16,6 +16,7 @@ struct ChatMessage: Identifiable, Equatable {
     /// DM-only (the original app never shows ticks in global/group chat).
     /// nil for anything that isn't your own outgoing DM.
     var status: DeliveryStatus? = nil
+    var deleted: Bool = false
 
     enum DeliveryStatus { case sent, delivered, read }
 
