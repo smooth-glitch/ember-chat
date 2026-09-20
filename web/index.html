@@ -3280,8 +3280,16 @@
             if (cached && cached.avatar) {
               el.textContent = "";
               var img = document.createElement("img");
-              img.src = cached.avatar;
               img.alt = "";
+              // If the photo URL 404s/fails (stale/deleted upload, network
+              // hiccup), fall back to the initials instead of leaving a
+              // blank broken-image box -- committing to an <img> up front
+              // has no other way to recover once the load fails.
+              img.onerror = function () {
+                el.textContent = initials(name);
+                this.remove();
+              };
+              img.src = cached.avatar;
               el.appendChild(img);
             } else {
               fetchProfile(name);
@@ -3707,6 +3715,20 @@
           ) {
             closeMessageActionMenu();
           }
+        });
+
+        // Desktop has no long-press, and the always-visible hover icons only
+        // cover react/reply -- right-click is the natural desktop
+        // equivalent for the fuller action sheet (Copy, and Delete for
+        // Everyone on your own messages).
+        messagesEl.addEventListener("contextmenu", function (e) {
+          var bubble = e.target.closest(".msg");
+          var row = bubble && bubble.closest(".row");
+          if (!bubble || !row || !row.dataset.msgId) return;
+          var entry = messagesById.get(Number(row.dataset.msgId));
+          if (!entry) return;
+          e.preventDefault();
+          openMessageActions(bubble, entry.msg, entry.convKey);
         });
 
         // ---- long-press on a message: react + reply/copy together ----
@@ -5097,8 +5119,12 @@
           meAvatar.style.background = avatarColor(myName);
           if (myAvatarUrl) {
             var img = document.createElement("img");
-            img.src = myAvatarUrl;
             img.alt = "";
+            img.onerror = function () {
+              meAvatar.textContent = initials(myName);
+              this.remove();
+            };
+            img.src = myAvatarUrl;
             meAvatar.appendChild(img);
           } else {
             meAvatar.textContent = initials(myName);
