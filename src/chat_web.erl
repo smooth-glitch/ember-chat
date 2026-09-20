@@ -180,6 +180,12 @@ respond(Socket, Code, Reason, ContentType, Body) ->
             %% tells it not to sniff the body and guess at executing it as
             %% something else (relevant to /uploads/*, harmless elsewhere).
             "X-Content-Type-Options: nosniff\r\n",
+            %% This app changes several times a day during the demo push --
+            %% no-cache forces the browser to revalidate every request
+            %% instead of silently serving a stale index.html/JS from
+            %% before the latest fix (the exact "why isn't my change
+            %% showing up on the phone" class of confusion).
+            "Cache-Control: no-cache\r\n",
             "Connection: close\r\n\r\n"],
     gen_tcp:send(Socket, [Head, Body]).
 
@@ -902,6 +908,22 @@ ws_loop(Socket, Name, Buf) ->
                 {"reactions", {raw, reactions_json(Reactions)}},
                 {"userA", {str, UserA}}, {"userB", {str, UserB}}])),
             ws_loop(Socket, Name, Buf);
+        {deleted, MessageId} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "deleted"}}, {"scope", {str, "global"}},
+                {"messageId", {raw, integer_to_list(MessageId)}}])),
+            ws_loop(Socket, Name, Buf);
+        {dm_deleted, MessageId, UserA, UserB} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "dm_deleted"}},
+                {"messageId", {raw, integer_to_list(MessageId)}},
+                {"userA", {str, UserA}}, {"userB", {str, UserB}}])),
+            ws_loop(Socket, Name, Buf);
+        {group_deleted, GroupName, MessageId} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "group_deleted"}}, {"group", {str, GroupName}},
+                {"messageId", {raw, integer_to_list(MessageId)}}])),
+            ws_loop(Socket, Name, Buf);
         {own_message_id, Id} ->
             ws_send(Socket, json_obj2([{"type", {str, "own_message_id"}}, {"id", {raw, integer_to_list(Id)}}])),
             ws_loop(Socket, Name, Buf);
@@ -1101,6 +1123,17 @@ handle_line(_Socket, Name, "/react " ++ Rest) ->
             with_int(MsgIdStr, fun(Id) -> chat_room:react_dm(Id, Name, Emoji, Other) end);
         ["group", GroupName, MsgIdStr, Emoji] ->
             with_int(MsgIdStr, fun(Id) -> chat_groups:react(GroupName, Id, Name, Emoji) end);
+        _ ->
+            ok
+    end;
+handle_line(_Socket, Name, "/delete " ++ Rest) ->
+    case string:split(Rest, " ", all) of
+        ["global", MsgIdStr] ->
+            with_int(MsgIdStr, fun(Id) -> chat_room:delete_global(Id, Name) end);
+        ["dm", Other, MsgIdStr] ->
+            with_int(MsgIdStr, fun(Id) -> chat_room:delete_dm(Id, Name, Other) end);
+        ["group", GroupName, MsgIdStr] ->
+            with_int(MsgIdStr, fun(Id) -> chat_groups:delete(GroupName, Id, Name) end);
         _ ->
             ok
     end;
@@ -1314,9 +1347,10 @@ send_history_payload(Socket, Scope, ExtraFields, Items) ->
     ItemsJson = [json_obj2(
         [{"id", {raw, integer_to_list(Id)}}, {"from", {str, From}}, {"text", {str, Text}},
          {"private", {raw, bool_str(Private)}}, {"reactions", {raw, reactions_json(Reactions)}},
+         {"deleted", {raw, bool_str(Deleted)}},
          reply_field(ReplyTo)]
         ++ preview_fields(Preview))
-                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo} <- Items],
+                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo, Deleted} <- Items],
     ListJson = "[" ++ string:join(ItemsJson, ",") ++ "]",
     Fields = [{"type", {str, "history"}}, {"scope", {str, Scope}}] ++
              [{K, {str, V}} || {K, V} <- ExtraFields] ++

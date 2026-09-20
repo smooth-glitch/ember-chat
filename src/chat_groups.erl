@@ -18,7 +18,7 @@
 
 -export([start_link/0]).
 -export([create_group/2, add_member/3, leave_group/2, list_groups_for/1,
-         list_members/1, group_message/3, group_message/4, typing/2, react/4]).
+         list_members/1, group_message/3, group_message/4, typing/2, react/4, delete/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(group, {owner :: string(), members :: [string()]}).
@@ -53,6 +53,7 @@ group_message(GroupName, From, Text, ReplyTo) ->
 
 typing(GroupName, From) -> gen_server:cast(?MODULE, {typing, GroupName, From}).
 react(GroupName, MessageId, User, Emoji) -> gen_server:cast(?MODULE, {react, GroupName, MessageId, User, Emoji}).
+delete(GroupName, MessageId, User) -> gen_server:cast(?MODULE, {delete, GroupName, MessageId, User}).
 
 init([]) ->
     Groups = maps:from_list(
@@ -164,6 +165,17 @@ handle_cast({react, GroupName, MessageId, User, Emoji}, State = #state{groups = 
             case chat_store:toggle_reaction(MessageId, User, Emoji) of
                 {ok, Reactions} -> notify_members(Members, [], {group_reaction, GroupName, MessageId, Reactions});
                 {error, not_found} -> ok
+            end;
+        error ->
+            ok
+    end,
+    {noreply, State};
+handle_cast({delete, GroupName, MessageId, User}, State = #state{groups = Groups}) ->
+    case maps:find(GroupName, Groups) of
+        {ok, #group{members = Members}} ->
+            case chat_store:delete_message(MessageId, User) of
+                {ok, deleted} -> notify_members(Members, [], {group_deleted, GroupName, MessageId});
+                _ -> ok
             end;
         error ->
             ok

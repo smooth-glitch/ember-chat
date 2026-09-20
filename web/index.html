@@ -911,6 +911,10 @@
       .msg.out .from {
         color: rgba(255, 255, 255, 0.85);
       }
+      .deleted-msg {
+        font-style: italic;
+        opacity: 0.7;
+      }
       .msg.private {
         border-left: 3px solid var(--warn-text);
       }
@@ -1213,6 +1217,9 @@
         background: none;
         border: none;
         min-height: 44px;
+      }
+      #message-action-menu button.danger {
+        color: var(--danger);
       }
       #message-action-menu .action-icon {
         font-size: 16px;
@@ -1539,12 +1546,21 @@
         font-weight: 600;
         flex-shrink: 0;
       }
-      #recording-hint {
-        color: var(--muted);
-        font-size: 13px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+      #recording-wave {
+        flex: 1;
+        min-width: 0;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        gap: 3px;
+      }
+      #recording-wave span {
+        flex: 1;
+        max-width: 4px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--danger);
+        transition: height 0.08s ease;
       }
       #recording-cancel,
       #recording-send {
@@ -1578,11 +1594,6 @@
         }
         #recording-send:hover {
           filter: brightness(1.08);
-        }
-      }
-      @media (max-width: 420px) {
-        #recording-hint {
-          display: none;
         }
       }
 
@@ -2671,7 +2682,9 @@
           <div id="recording-bar" class="hidden">
             <span id="recording-dot"></span>
             <span id="recording-time">0:00</span>
-            <span id="recording-hint">Recording voice note&hellip;</span>
+            <div id="recording-wave" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
             <button
               id="recording-cancel"
               type="button"
@@ -2878,6 +2891,9 @@
       </button>
       <button type="button" id="action-copy" role="menuitem">
         <span class="action-icon">&#128203;</span> Copy Text
+      </button>
+      <button type="button" id="action-delete" class="hidden danger" role="menuitem">
+        <span class="action-icon">&#128465;</span> Delete for Everyone
       </button>
     </div>
 
@@ -3200,6 +3216,7 @@
         var messageActionMenu = document.getElementById("message-action-menu");
         var actionReplyBtn = document.getElementById("action-reply");
         var actionCopyBtn = document.getElementById("action-copy");
+        var actionDeleteBtn = document.getElementById("action-delete");
         var pendingReactionTarget = null; // {msg, convKey} while the emoji tab is open for a custom reaction
 
         // ---- utility ----
@@ -3402,6 +3419,43 @@
             wsSend("/react group " + conv.title + " " + msg.id + " " + emoji);
         }
 
+        // Delete-for-everyone -- the server re-checks that this client is
+        // actually the original sender before honoring it (see
+        // chat_store:delete_message/2), this client-side gate just keeps
+        // the option from showing on messages that would be rejected anyway.
+        function sendDelete(convKey, msg) {
+          if (msg.id === undefined) return;
+          var conv = conversations.get(convKey);
+          if (!conv) return;
+          if (conv.type === "global") wsSend("/delete global " + msg.id);
+          else if (conv.type === "dm")
+            wsSend("/delete dm " + conv.title + " " + msg.id);
+          else if (conv.type === "group")
+            wsSend("/delete group " + conv.title + " " + msg.id);
+        }
+
+        function applyMessageDeleted(messageId) {
+          var entry = messagesById.get(messageId);
+          if (!entry) return;
+          entry.msg.deleted = true;
+          entry.msg.text = "";
+          entry.msg.reactions = [];
+          if (entry.convKey !== activeKey) return;
+          var row = messagesEl.querySelector(
+            '[data-msg-id="' + messageId + '"]',
+          );
+          var bubble = row && row.querySelector(".msg");
+          if (!bubble) return;
+          bubble.classList.remove("image-msg", "audio-msg");
+          var fromEl = bubble.querySelector(".from");
+          bubble.innerHTML = "";
+          if (fromEl) bubble.appendChild(fromEl);
+          var placeholder = document.createElement("span");
+          placeholder.className = "deleted-msg";
+          placeholder.textContent = "This message was deleted";
+          bubble.appendChild(placeholder);
+        }
+
         function applyReactionUpdate(messageId, reactions) {
           var entry = messagesById.get(messageId);
           if (!entry) return; // reaction on a message this client never loaded (e.g. from before it joined) -- nothing to update
@@ -3551,7 +3605,9 @@
         // other, since the reaction bar already claims that exact spot.
         function openMessageActionMenu(bubbleRect, avoidRect, msg, convKey) {
           messageActionMenu.classList.remove("hidden", "closing");
-          var menuHeight = 100; // two 44px rows + padding, approximate
+          var canDelete = msg.out && msg.id !== undefined;
+          actionDeleteBtn.classList.toggle("hidden", !canDelete);
+          var menuHeight = canDelete ? 144 : 100; // 44px per row + padding, approximate
           var menuWidth = 190;
           var left = Math.min(
             Math.max(8, bubbleRect.left),
@@ -3576,6 +3632,11 @@
               navigator.clipboard.writeText(text).catch(function () {});
             }
             toast("Copied.");
+          };
+          actionDeleteBtn.onclick = function () {
+            closeMessageActionMenu();
+            closeQuickReact();
+            sendDelete(convKey, msg);
           };
         }
         // The combined long-press sheet: reaction bar above the bubble,
@@ -4381,18 +4442,25 @@
             fromEl.textContent = msg.fromLabel;
             bubble.appendChild(fromEl);
           }
-          if (msg.replyTo) renderReplyQuote(bubble, msg.replyTo);
-          renderMessageContent(bubble, msg.text);
-          if (msg.out && msg.private) {
-            var ticks = document.createElement("span");
-            var delivered = msg.status === "delivered" || msg.status === "read";
-            ticks.className = "ticks" + (msg.status === "read" ? " read" : "");
-            ticks.textContent = delivered ? "✓✓" : "✓";
-            bubble.appendChild(ticks);
+          if (msg.deleted) {
+            var placeholder = document.createElement("span");
+            placeholder.className = "deleted-msg";
+            placeholder.textContent = "This message was deleted";
+            bubble.appendChild(placeholder);
+          } else {
+            if (msg.replyTo) renderReplyQuote(bubble, msg.replyTo);
+            renderMessageContent(bubble, msg.text);
+            if (msg.out && msg.private) {
+              var ticks = document.createElement("span");
+              var delivered = msg.status === "delivered" || msg.status === "read";
+              ticks.className = "ticks" + (msg.status === "read" ? " read" : "");
+              ticks.textContent = delivered ? "✓✓" : "✓";
+              bubble.appendChild(ticks);
+            }
           }
           row.appendChild(bubble);
           messagesEl.appendChild(row);
-          if (msg.id !== undefined && convKey)
+          if (!msg.deleted && msg.id !== undefined && convKey)
             attachReactTrigger(row, msg, convKey);
           return row;
         }
@@ -5064,7 +5132,12 @@
           var file = profilePhotoInput.files && profilePhotoInput.files[0];
           profilePhotoInput.value = "";
           if (!file) return;
-          if (ALLOWED_UPLOAD_TYPES.indexOf(file.type) === -1) {
+          // Some mobile camera captures report an empty/nonstandard
+          // file.type, which would fail this check even for a perfectly
+          // valid photo -- only reject when the browser actually claims a
+          // type we know is wrong. The server still validates for real via
+          // magic bytes regardless, so this is a UX nicety, not the gate.
+          if (file.type && ALLOWED_UPLOAD_TYPES.indexOf(file.type) === -1) {
             toast("Only PNG, JPEG, GIF, or WebP images are supported.", true);
             return;
           }
@@ -5078,6 +5151,7 @@
             wsSend("/setavatar " + url);
             renderMyProfile();
             openProfileModal(); // refresh the preview with the new photo
+            toast("Profile photo updated.");
           });
         });
         membersCloseBtn.addEventListener("click", closeModals);
@@ -5351,6 +5425,29 @@
         var recordingStartedAt = 0;
         var recordingTimerId = null;
         var recordingStream = null;
+        var recordingAudioCtx = null;
+        var recordingAnalyser = null;
+        var recordingWaveRAF = null;
+        var recordingWaveBars = document.querySelectorAll("#recording-wave span");
+
+        // Drives the waveform bars from the live mic level while recording.
+        // Purely visual -- if AudioContext/AnalyserNode ever throws (some
+        // very old browsers), recording itself still works, it just won't
+        // animate.
+        function tickRecordingWave() {
+          if (!recordingAnalyser) return;
+          var data = new Uint8Array(recordingAnalyser.frequencyBinCount);
+          recordingAnalyser.getByteFrequencyData(data);
+          var bars = recordingWaveBars.length;
+          var chunk = Math.max(1, Math.floor(data.length / bars));
+          for (var i = 0; i < bars; i++) {
+            var sum = 0;
+            for (var j = i * chunk; j < i * chunk + chunk; j++) sum += data[j] || 0;
+            var avg = sum / chunk; // 0-255
+            recordingWaveBars[i].style.height = 4 + Math.round((avg / 255) * 20) + "px";
+          }
+          recordingWaveRAF = requestAnimationFrame(tickRecordingWave);
+        }
 
         function pickRecordingMimeType() {
           var candidates = [
@@ -5430,6 +5527,18 @@
               recordingTime.textContent = "0:00";
               recordingTimerId = setInterval(tickRecordingTimer, 250);
               showRecordingUI(true);
+              try {
+                recordingAudioCtx = new (window.AudioContext ||
+                  window.webkitAudioContext)();
+                recordingAnalyser = recordingAudioCtx.createAnalyser();
+                recordingAnalyser.fftSize = 64;
+                recordingAudioCtx
+                  .createMediaStreamSource(stream)
+                  .connect(recordingAnalyser);
+                tickRecordingWave();
+              } catch (err) {
+                /* waveform is a nicety -- recording still works without it */
+              }
             })
             .catch(function () {
               toast("Microphone access was denied or unavailable.", true);
@@ -5452,6 +5561,26 @@
               });
               recordingStream = null;
             }
+            if (recordingWaveRAF) {
+              cancelAnimationFrame(recordingWaveRAF);
+              recordingWaveRAF = null;
+            }
+            recordingAnalyser = null;
+            // Closing this (not just stopping the mic tracks above) matters
+            // on some mobile browsers -- Android Chrome in particular has
+            // been observed leaving the audio session routed for
+            // "communication" (mic-in-use) mode after getUserMedia, which
+            // can make a *just-recorded* voice note play back silently or
+            // through the earpiece on the SAME device, even though it
+            // sounds fine on any other device opening the same file/URL.
+            // Fully releasing the AudioContext is the standard fix.
+            if (recordingAudioCtx) {
+              recordingAudioCtx.close().catch(function () {});
+              recordingAudioCtx = null;
+            }
+            recordingWaveBars.forEach(function (b) {
+              b.style.height = "4px";
+            });
             showRecordingUI(false);
             if (send && recordingChunks.length > 0) {
               var blob = new Blob(recordingChunks, { type: mimeType });
@@ -5670,6 +5799,7 @@
                   reactions: item.reactions || [],
                   preview: parsePreviewFromWire(item),
                   replyTo: item.replyTo,
+                  deleted: !!item.deleted,
                   // Historical DMs were presumably already seen; only messages
                   // sent live this session should show the sent-→read progression.
                   status: isOut && item.private ? "read" : undefined,
@@ -5717,6 +5847,11 @@
               break;
             case "group_reaction":
               applyReactionUpdate(data.messageId, data.reactions);
+              break;
+            case "deleted":
+            case "dm_deleted":
+            case "group_deleted":
+              applyMessageDeleted(data.messageId);
               break;
             case "link_preview":
             case "dm_link_preview":

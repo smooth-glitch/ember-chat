@@ -8,10 +8,11 @@
 -module(chat_store).
 -export([init/0, save_message/5, save_message/6, load_history/1, dm_key/2,
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
+         delete_message/2,
          save_link_preview/2, find_or_create_account/3,
          set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1]).
 
--record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = []}).
+-record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false}).
 -record(chat_group, {name, owner, members}).
 %% Key is {Provider, Sub} (e.g. {google, "10769150350006150715"}) -- Sub is
 %% the provider's own stable subject id, never the email (people can change
@@ -138,7 +139,24 @@ load_history(ConvKey) ->
     Trimmed = lists:nthtail(max(0, Len - ?HISTORY_LIMIT), Sorted),
     [{R#chat_message.id, R#chat_message.from, R#chat_message.text,
       R#chat_message.private, R#chat_message.reactions, R#chat_message.preview,
-      R#chat_message.reply_to} || R <- Trimmed].
+      R#chat_message.reply_to, R#chat_message.deleted =:= true} || R <- Trimmed].
+
+%% Deletes a message for everyone -- only the original sender may delete
+%% their own message (enforced here, not just client-side, so a malicious
+%% client can't wipe someone else's message by guessing an id). The row
+%% stays (so ids/history ordering and any reply-quotes pointing at it don't
+%% dangle), text is cleared, and `deleted` is set so clients render "This
+%% message was deleted" instead of the original content.
+delete_message(MessageId, User) ->
+    case mnesia:dirty_read(chat_message, MessageId) of
+        [Msg = #chat_message{from = User}] ->
+            ok = mnesia:dirty_write(Msg#chat_message{text = "", deleted = true}),
+            {ok, deleted};
+        [#chat_message{}] ->
+            {error, forbidden};
+        [] ->
+            {error, not_found}
+    end.
 
 %% Attaches a fetched link preview to an already-persisted message, so it
 %% shows up in history without being re-fetched (and without re-exposing

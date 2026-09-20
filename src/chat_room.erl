@@ -13,6 +13,7 @@
          send_private/3, send_private/4, list_users/0]).
 -export([get_pid/1, typing/1, typing_dm/2, mark_read/2]).
 -export([react_global/3, react_dm/4]).
+-export([delete_global/2, delete_dm/3]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {users = #{} :: #{string() => pid()},
@@ -58,6 +59,9 @@ mark_read(Reader, Other) -> gen_server:cast(?MODULE, {mark_read, Reader, Other})
 
 react_global(MessageId, User, Emoji) -> gen_server:cast(?MODULE, {react_global, MessageId, User, Emoji}).
 react_dm(MessageId, User, Emoji, Other) -> gen_server:cast(?MODULE, {react_dm, MessageId, User, Emoji, Other}).
+
+delete_global(MessageId, User) -> gen_server:cast(?MODULE, {delete_global, MessageId, User}).
+delete_dm(MessageId, User, Other) -> gen_server:cast(?MODULE, {delete_dm, MessageId, User, Other}).
 
 init([]) ->
     {ok, #state{}}.
@@ -158,6 +162,25 @@ handle_cast({react_dm, MessageId, User, Emoji, Other}, State = #state{users = Us
                     end
                 end, [User, Other]);
         {error, not_found} -> ok
+    end,
+    {noreply, State};
+handle_cast({delete_global, MessageId, User}, State = #state{users = Users}) ->
+    case chat_store:delete_message(MessageId, User) of
+        {ok, deleted} -> notify_all(Users, {deleted, MessageId});
+        _ -> ok
+    end,
+    {noreply, State};
+handle_cast({delete_dm, MessageId, User, Other}, State = #state{users = Users}) ->
+    case chat_store:delete_message(MessageId, User) of
+        {ok, deleted} ->
+            lists:foreach(
+                fun(N) ->
+                    case maps:find(N, Users) of
+                        {ok, Pid} -> Pid ! {dm_deleted, MessageId, User, Other};
+                        error -> ok
+                    end
+                end, [User, Other]);
+        _ -> ok
     end,
     {noreply, State}.
 
