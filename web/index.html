@@ -1560,7 +1560,32 @@
         height: 4px;
         border-radius: 2px;
         background: var(--danger);
-        transition: height 0.08s ease;
+        animation: recordingWaveBounce 0.9s ease-in-out infinite;
+      }
+      #recording-wave span:nth-child(1),
+      #recording-wave span:nth-child(7) {
+        animation-delay: 0s;
+      }
+      #recording-wave span:nth-child(2),
+      #recording-wave span:nth-child(6),
+      #recording-wave span:nth-child(8) {
+        animation-delay: 0.15s;
+      }
+      #recording-wave span:nth-child(3),
+      #recording-wave span:nth-child(5) {
+        animation-delay: 0.3s;
+      }
+      #recording-wave span:nth-child(4) {
+        animation-delay: 0.45s;
+      }
+      @keyframes recordingWaveBounce {
+        0%,
+        100% {
+          height: 4px;
+        }
+        50% {
+          height: 22px;
+        }
       }
       #recording-cancel,
       #recording-send {
@@ -3241,7 +3266,7 @@
           return palette[hash % palette.length];
         }
         function initials(name) {
-          return (name || "?").charAt(0).toUpperCase();
+          return name ? name.charAt(0).toUpperCase() : "";
         }
         function makeAvatar(name, isGroup) {
           var el = document.createElement("div");
@@ -5425,29 +5450,6 @@
         var recordingStartedAt = 0;
         var recordingTimerId = null;
         var recordingStream = null;
-        var recordingAudioCtx = null;
-        var recordingAnalyser = null;
-        var recordingWaveRAF = null;
-        var recordingWaveBars = document.querySelectorAll("#recording-wave span");
-
-        // Drives the waveform bars from the live mic level while recording.
-        // Purely visual -- if AudioContext/AnalyserNode ever throws (some
-        // very old browsers), recording itself still works, it just won't
-        // animate.
-        function tickRecordingWave() {
-          if (!recordingAnalyser) return;
-          var data = new Uint8Array(recordingAnalyser.frequencyBinCount);
-          recordingAnalyser.getByteFrequencyData(data);
-          var bars = recordingWaveBars.length;
-          var chunk = Math.max(1, Math.floor(data.length / bars));
-          for (var i = 0; i < bars; i++) {
-            var sum = 0;
-            for (var j = i * chunk; j < i * chunk + chunk; j++) sum += data[j] || 0;
-            var avg = sum / chunk; // 0-255
-            recordingWaveBars[i].style.height = 4 + Math.round((avg / 255) * 20) + "px";
-          }
-          recordingWaveRAF = requestAnimationFrame(tickRecordingWave);
-        }
 
         function pickRecordingMimeType() {
           var candidates = [
@@ -5527,18 +5529,6 @@
               recordingTime.textContent = "0:00";
               recordingTimerId = setInterval(tickRecordingTimer, 250);
               showRecordingUI(true);
-              try {
-                recordingAudioCtx = new (window.AudioContext ||
-                  window.webkitAudioContext)();
-                recordingAnalyser = recordingAudioCtx.createAnalyser();
-                recordingAnalyser.fftSize = 64;
-                recordingAudioCtx
-                  .createMediaStreamSource(stream)
-                  .connect(recordingAnalyser);
-                tickRecordingWave();
-              } catch (err) {
-                /* waveform is a nicety -- recording still works without it */
-              }
             })
             .catch(function () {
               toast("Microphone access was denied or unavailable.", true);
@@ -5561,26 +5551,6 @@
               });
               recordingStream = null;
             }
-            if (recordingWaveRAF) {
-              cancelAnimationFrame(recordingWaveRAF);
-              recordingWaveRAF = null;
-            }
-            recordingAnalyser = null;
-            // Closing this (not just stopping the mic tracks above) matters
-            // on some mobile browsers -- Android Chrome in particular has
-            // been observed leaving the audio session routed for
-            // "communication" (mic-in-use) mode after getUserMedia, which
-            // can make a *just-recorded* voice note play back silently or
-            // through the earpiece on the SAME device, even though it
-            // sounds fine on any other device opening the same file/URL.
-            // Fully releasing the AudioContext is the standard fix.
-            if (recordingAudioCtx) {
-              recordingAudioCtx.close().catch(function () {});
-              recordingAudioCtx = null;
-            }
-            recordingWaveBars.forEach(function (b) {
-              b.style.height = "4px";
-            });
             showRecordingUI(false);
             if (send && recordingChunks.length > 0) {
               var blob = new Blob(recordingChunks, { type: mimeType });
