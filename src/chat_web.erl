@@ -138,7 +138,7 @@ dispatch(Socket, "GET", Path, QueryParams, Headers, _BodyStart) ->
                                 nomatch -> serve_404(Socket);
                                 IconFile -> serve_icon(Socket, IconFile)
                             end;
-                        Filename -> serve_upload(Socket, Filename)
+                        Filename -> serve_upload(Socket, Filename, Headers)
                     end
             end
     end;
@@ -186,6 +186,7 @@ respond(Socket, Code, Reason, ContentType, Body) ->
             %% before the latest fix (the exact "why isn't my change
             %% showing up on the phone" class of confusion).
             "Cache-Control: no-cache\r\n",
+            "Accept-Ranges: bytes\r\n",
             "Connection: close\r\n\r\n"],
     gen_tcp:send(Socket, [Head, Body]).
 
@@ -465,7 +466,7 @@ random_hex(NumBytes) ->
     Bytes = crypto:strong_rand_bytes(NumBytes),
     lists:flatten([io_lib:format("~2.16.0b", [B]) || <<B>> <= Bytes]).
 
-serve_upload(Socket, FilenameStr) ->
+serve_upload(Socket, FilenameStr, Headers) ->
     case is_safe_filename(FilenameStr) of
         false ->
             serve_404(Socket);
@@ -473,12 +474,62 @@ serve_upload(Socket, FilenameStr) ->
             Path = filename:join(uploads_dir(), FilenameStr),
             case file:read_file(Path) of
                 {ok, Data} ->
-                    respond(Socket, 200, "OK", content_type_for_filename(FilenameStr), Data);
+                    serve_with_range(Socket, content_type_for_filename(FilenameStr), Data, Headers);
                 {error, _} ->
                     serve_404(Socket)
             end
     end,
     gen_tcp:close(Socket).
+
+%% A browser's <audio>/<video> element (preload="metadata" especially)
+%% probes media with a byte-Range request, and some browsers refuse to
+%% play at all -- surfacing as a bare "Error" state, with the file
+%% otherwise downloading fine -- if the server always replies with the
+%% whole file instead of honoring it. Only the single-range forms a media
+%% element actually sends ("bytes=N-M" / "bytes=N-") are handled; anything
+%% else, or no Range header at all, falls back to the original plain 200.
+serve_with_range(Socket, ContentType, Data, Headers) ->
+    Total = byte_size(Data),
+    case maps:find("range", Headers) of
+        {ok, "bytes=" ++ RangeSpec} ->
+            case parse_byte_range(RangeSpec, Total) of
+                {ok, Start, End} ->
+                    Chunk = binary:part(Data, Start, End - Start + 1),
+                    respond_range(Socket, ContentType, Chunk, Start, End, Total);
+                error ->
+                    respond(Socket, 200, "OK", ContentType, Data)
+            end;
+        _ ->
+            respond(Socket, 200, "OK", ContentType, Data)
+    end.
+
+parse_byte_range(Spec, Total) when Total > 0 ->
+    case string:split(Spec, "-") of
+        [StartStr, ""] ->
+            case string:to_integer(StartStr) of
+                {Start, []} when Start >= 0, Start < Total -> {ok, Start, Total - 1};
+                _ -> error
+            end;
+        [StartStr, EndStr] ->
+            case {string:to_integer(StartStr), string:to_integer(EndStr)} of
+                {{Start, []}, {End, []}} when Start >= 0, End >= Start ->
+                    {ok, Start, min(End, Total - 1)};
+                _ -> error
+            end;
+        _ ->
+            error
+    end;
+parse_byte_range(_, _) -> error.
+
+respond_range(Socket, ContentType, Chunk, Start, End, Total) ->
+    Head = ["HTTP/1.1 206 Partial Content\r\n",
+            "Content-Type: ", ContentType, "\r\n",
+            "Content-Range: bytes ", integer_to_list(Start), "-", integer_to_list(End), "/", integer_to_list(Total), "\r\n",
+            "Content-Length: ", integer_to_list(byte_size(Chunk)), "\r\n",
+            "Accept-Ranges: bytes\r\n",
+            "X-Content-Type-Options: nosniff\r\n",
+            "Connection: close\r\n\r\n"],
+    gen_tcp:send(Socket, [Head, Chunk]).
 
 is_safe_filename(Name) ->
     Name =/= "" andalso
