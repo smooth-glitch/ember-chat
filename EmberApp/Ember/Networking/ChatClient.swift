@@ -43,13 +43,12 @@ final class ChatClient {
     private(set) var gifResults: [MediaResult] = []
     private(set) var stickerResults: [MediaResult] = []
 
-    /// `wss://` via the project's existing ngrok tunnel -- works from both
-    /// the simulator and a real device (unlike `ws://localhost:8080/`,
-    /// which only resolves for simulators, since they share the Mac's
-    /// network stack). ngrok's free tier rotates this URL on every
-    /// restart -- if it's gone stale, check `curl localhost:4040/api/
-    /// tunnels` for the current one.
-    var serverURL = URL(string: "wss://0178-2406-7400-12b-6041-14f4-4de7-a022-f693.ngrok-free.app/")!
+    /// `wss://` via the project's ngrok tunnel -- works from both the
+    /// simulator and a real device (unlike `ws://localhost:8080/`, which
+    /// only resolves for simulators, since they share the Mac's network
+    /// stack). This is a static ngrok domain (free-tier reserved), so it
+    /// stays valid across server restarts -- no need to re-check it here.
+    var serverURL = URL(string: "wss://crumpet-troubling-surely.ngrok-free.dev/")!
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
