@@ -7,7 +7,9 @@
 </p>
 
 <p align="center">
-  🌐 <a href="https://crumpet-troubling-surely.ngrok-free.dev" target="_blank"><b>Live Demo</b></a>
+  🌐 <a href="https://ember-chat-tofm.onrender.com" target="_blank"><b>Live Demo</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://crumpet-troubling-surely.ngrok-free.dev" target="_blank">Alt link (Mac-hosted)</a>
 </p>
 
 <p align="center">

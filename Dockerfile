@@ -19,4 +19,8 @@ EXPOSE 8080
 # No -sname/-name: that's only needed locally for the hot-reload dev
 # workflow (RPC into a named node) and adds epmd complexity with no
 # benefit in a container that just gets redeployed on every change.
-CMD ["sh", "-c", "erl -noshell -pa ebin -s chat_app start 5555 ${PORT:-8080}"]
+# start_web_only, not start: a hosted deploy only ever exposes one port
+# to the internet, and opening the raw TCP port too just gives the
+# platform's port auto-detection a second target to potentially pick
+# instead -- see chat_app:start_web_only/1's doc comment.
+CMD ["sh", "-c", "erl -noshell -pa ebin -s chat_app start_web_only ${PORT:-8080}"]

@@ -43,12 +43,13 @@ final class ChatClient {
     private(set) var gifResults: [MediaResult] = []
     private(set) var stickerResults: [MediaResult] = []
 
-    /// `wss://` via the project's ngrok tunnel -- works from both the
-    /// simulator and a real device (unlike `ws://localhost:8080/`, which
-    /// only resolves for simulators, since they share the Mac's network
-    /// stack). This is a static ngrok domain (free-tier reserved), so it
-    /// stays valid across server restarts -- no need to re-check it here.
-    var serverURL = URL(string: "wss://crumpet-troubling-surely.ngrok-free.dev/")!
+    /// `wss://` to the Render deploy -- an always-on host, unlike the
+    /// project's ngrok tunnel (wss://crumpet-troubling-surely.ngrok-free.dev/)
+    /// which only answers while the Mac it runs on is awake and the tunnel
+    /// process is alive. Works from both the simulator and a real device
+    /// (unlike `ws://localhost:8080/`, which only resolves for simulators,
+    /// since they share the Mac's network stack).
+    var serverURL = URL(string: "wss://ember-chat-tofm.onrender.com/")!
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?

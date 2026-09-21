@@ -24,16 +24,26 @@ init([TcpPort, WebPort]) ->
                    shutdown => 5000,
                    type => worker,
                    modules => [chat_groups]},
-    Listener = #{id => chat_listener,
-                 start => {chat_listener, start_link, [TcpPort]},
-                 restart => permanent,
-                 shutdown => 5000,
-                 type => worker,
-                 modules => [chat_listener]},
     WebListener = #{id => chat_web_listener,
                     start => {chat_web_listener, start_link, [WebPort]},
                     restart => permanent,
                     shutdown => 5000,
                     type => worker,
                     modules => [chat_web_listener]},
-    {ok, {SupFlags, [ChatRoom, ChatGroups, Listener, WebListener]}}.
+    %% TcpPort is `undefined` for a hosted deploy (chat_app:start_web_only/1)
+    %% that deliberately doesn't open the raw TCP port at all -- see its doc
+    %% comment for why a second open port there is actively dangerous, not
+    %% just unused.
+    Children = case TcpPort of
+        undefined ->
+            [ChatRoom, ChatGroups, WebListener];
+        _ ->
+            Listener = #{id => chat_listener,
+                         start => {chat_listener, start_link, [TcpPort]},
+                         restart => permanent,
+                         shutdown => 5000,
+                         type => worker,
+                         modules => [chat_listener]},
+            [ChatRoom, ChatGroups, Listener, WebListener]
+    end,
+    {ok, {SupFlags, Children}}.
