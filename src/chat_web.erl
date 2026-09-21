@@ -1276,6 +1276,23 @@ handle_line(Socket, Name, "/groups") ->
 handle_line(Socket, _Name, Text) when length(Text) > ?MAX_MESSAGE_LEN ->
     ws_send_json(Socket, "error",
         io_lib:format("Message too long (max ~p chars)", [?MAX_MESSAGE_LEN]));
+%% Safety net: a bare command name with no argument (e.g. "/getprofile"
+%% with no trailing " <user>") doesn't match that command's own clause
+%% above (which requires the space), so without this it falls all the way
+%% through to the plain-broadcast catch-all below and gets sent to the
+%% whole room as literal chat text -- confirmed live, this is exactly
+%% what was showing up as spurious "/getprofile" messages. Swallow any
+%% of these known command names on their own rather than broadcasting
+%% them; this doesn't affect ordinary chat text, which never happens to
+%% exactly equal one of these.
+handle_line(_Socket, _Name, Text) when
+    Text =:= "/msg"; Text =:= "/reply"; Text =:= "/replydm"; Text =:= "/history";
+    Text =:= "/typing"; Text =:= "/read"; Text =:= "/pubkey"; Text =:= "/getpubkey";
+    Text =:= "/setavatar"; Text =:= "/setstatus"; Text =:= "/getprofile";
+    Text =:= "/react"; Text =:= "/delete"; Text =:= "/creategroup";
+    Text =:= "/addmember"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
+    Text =:= "/replygroup" ->
+    ok;
 handle_line(_Socket, Name, Text) ->
     chat_room:broadcast(Name, Text).
 
