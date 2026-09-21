@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ember-chat
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      # Optional -- leave unset to run with guest logins only (Google
+      # sign-in just stays disabled, same as a fresh local checkout).
+      # Fill these in later from the Render dashboard if you want Google
+      # sign-in working on the deployed URL too.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
