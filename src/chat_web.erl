@@ -959,6 +959,11 @@ ws_loop(Socket, Name, Buf) ->
                 {"reactions", {raw, reactions_json(Reactions)}},
                 {"userA", {str, UserA}}, {"userB", {str, UserB}}])),
             ws_loop(Socket, Name, Buf);
+        {profile_update, User, Avatar, Status} ->
+            AvatarField = case Avatar of undefined -> {"avatar", {raw, "null"}}; A -> {"avatar", {str, A}} end,
+            StatusField = case Status of undefined -> {"status", {raw, "null"}}; S -> {"status", {str, S}} end,
+            ws_send(Socket, json_obj2([{"type", {str, "profile"}}, {"user", {str, User}}, AvatarField, StatusField])),
+            ws_loop(Socket, Name, Buf);
         {deleted, MessageId} ->
             ws_send(Socket, json_obj2([
                 {"type", {str, "deleted"}}, {"scope", {str, "global"}},
@@ -1146,9 +1151,11 @@ handle_line(Socket, _Name, "/getpubkey " ++ Other) ->
     ws_send(Socket, json_obj2([{"type", {str, "pubkey"}}, {"user", {str, Other}}, KeyField]));
 %% ---- profile: avatar + status ----
 handle_line(_Socket, Name, "/setavatar " ++ Url) ->
-    chat_store:set_avatar(Name, Url);
+    chat_store:set_avatar(Name, Url),
+    chat_room:broadcast_profile(Name);
 handle_line(_Socket, Name, "/setstatus " ++ Status) ->
-    chat_store:set_status(Name, Status);
+    chat_store:set_status(Name, Status),
+    chat_room:broadcast_profile(Name);
 handle_line(Socket, _Name, "/getprofile " ++ Other) ->
     {Avatar, Status} = chat_store:get_profile(Other),
     AvatarField = case Avatar of undefined -> {"avatar", {raw, "null"}}; A -> {"avatar", {str, A}} end,

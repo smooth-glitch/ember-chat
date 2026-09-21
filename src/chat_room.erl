@@ -14,6 +14,7 @@
 -export([get_pid/1, typing/1, typing_dm/2, mark_read/2]).
 -export([react_global/3, react_dm/4]).
 -export([delete_global/2, delete_dm/3]).
+-export([broadcast_profile/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {users = #{} :: #{string() => pid()},
@@ -62,6 +63,12 @@ react_dm(MessageId, User, Emoji, Other) -> gen_server:cast(?MODULE, {react_dm, M
 
 delete_global(MessageId, User) -> gen_server:cast(?MODULE, {delete_global, MessageId, User}).
 delete_dm(MessageId, User, Other) -> gen_server:cast(?MODULE, {delete_dm, MessageId, User, Other}).
+
+%% Pushes User's current avatar/status to every online client (web + iOS
+%% alike) right when it changes, instead of the old fetch-once-and-cache-
+%% forever behavior (a client only ever learned it by asking, so an avatar
+%% update made after that never reached anyone already connected).
+broadcast_profile(User) -> gen_server:cast(?MODULE, {broadcast_profile, User}).
 
 init([]) ->
     {ok, #state{}}.
@@ -182,6 +189,10 @@ handle_cast({delete_dm, MessageId, User, Other}, State = #state{users = Users}) 
                 end, [User, Other]);
         _ -> ok
     end,
+    {noreply, State};
+handle_cast({broadcast_profile, User}, State = #state{users = Users}) ->
+    {Avatar, Status} = chat_store:get_profile(User),
+    notify_all(Users, {profile_update, User, Avatar, Status}),
     {noreply, State}.
 
 handle_info({'DOWN', Ref, process, _Pid, _Reason}, State = #state{users = Users, monitors = Monitors}) ->
