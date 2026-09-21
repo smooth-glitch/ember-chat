@@ -6013,10 +6013,13 @@
                 renderMyProfile();
               }
               // Refresh anywhere this user's avatar is already on screen --
-              // cheap since renderChatList/renderOnlineList just redraw
-              // from current state, no extra round trip.
+              // cheap since these just redraw from current state, no extra
+              // round trip. Was previously only done for your own profile
+              // (inside renderMyProfile); other users' avatars in an
+              // already-open conversation never got the same refresh.
               renderChatList();
               renderOnlineList();
+              renderMessagesFull();
               break;
           }
         }
