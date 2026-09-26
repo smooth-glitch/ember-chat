@@ -8,6 +8,7 @@
 -module(chat_room).
 -behaviour(gen_server).
 
+-define(SWEEP_MS, 15000).
 -export([start_link/0]).
 -export([register_user/2, unregister_user/1, broadcast/2, broadcast/3,
          send_private/3, send_private/4, list_users/0]).
@@ -73,6 +74,7 @@ edit_dm(MessageId, User, Other, Text) -> gen_server:cast(?MODULE, {edit_dm, Mess
 broadcast_profile(User) -> gen_server:cast(?MODULE, {broadcast_profile, User}).
 
 init([]) ->
+    erlang:send_after(?SWEEP_MS, self(), sweep_expired),
     {ok, #state{}}.
 
 handle_call({register, Name, Pid}, _From, State = #state{users = Users, monitors = Monitors}) ->
@@ -228,6 +230,10 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State = #state{users = Users,
         error ->
             {noreply, State}
     end;
+handle_info(sweep_expired, State) ->
+    catch chat_store:sweep(),
+    erlang:send_after(?SWEEP_MS, self(), sweep_expired),
+    {noreply, State};
 handle_info(_Msg, State) ->
     {noreply, State}.
 

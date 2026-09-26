@@ -8,11 +8,12 @@
 -module(chat_store).
 -export([init/0, save_message/5, save_message/6, load_history/1, dm_key/2,
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
-         delete_message/2, edit_message/3,
+         delete_message/2, edit_message/3, set_ttl/2, get_ttl/1, set_group_meta/3, get_group_meta/1, get_expires/1, sweep/0,
          save_link_preview/2, find_or_create_account/3,
          set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1, set_last_seen/1, get_last_seen/1]).
 
--record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false, edited = false}).
+-record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false, edited = false, expires = undefined}).
+-record(conv_setting, {conv_key, ttl = 0, description = [], icon = []}).
 -record(chat_group, {name, owner, members}).
 %% Key is {Provider, Sub} (e.g. {google, "10769150350006150715"}) -- Sub is
 %% the provider's own stable subject id, never the email (people can change
@@ -44,7 +45,9 @@ init() ->
                  [{disc_copies, [node()]}]),
     ensure_table(user_profile, record_info(fields, user_profile),
                  [{disc_copies, [node()]}]),
-    ok = mnesia:wait_for_tables([chat_message, chat_group, chat_account, user_profile], 10000),
+    ensure_table(conv_setting, record_info(fields, conv_setting),
+                 [{disc_copies, [node()]}]),
+    ok = mnesia:wait_for_tables([chat_message, chat_group, chat_account, user_profile, conv_setting], 10000),
     migrate_preview_shape(),
     ok.
 
@@ -124,9 +127,14 @@ save_message(ConvKey, From, Text, Kind, Private) ->
 %% without this module duplicating (and risking going stale on) that data.
 save_message(ConvKey, From, Text, Kind, Private, ReplyTo) ->
     Id = erlang:unique_integer([monotonic, positive]),
+    Now = erlang:system_time(millisecond),
+    Expires = case get_ttl(ConvKey) of
+        0 -> undefined;
+        Secs -> Now + Secs * 1000
+    end,
     Msg = #chat_message{id = Id, conv_key = ConvKey, from = From, text = Text,
-                         kind = Kind, private = Private, ts = erlang:system_time(millisecond),
-                         reply_to = ReplyTo},
+                         kind = Kind, private = Private, ts = Now,
+                         reply_to = ReplyTo, expires = Expires},
     ok = mnesia:dirty_write(Msg),
     Id.
 
@@ -136,7 +144,9 @@ save_message(ConvKey, From, Text, Kind, Private, ReplyTo) ->
 %% Preview is [] (none yet, or never will be) or {Url, Title, Description,
 %% Image}; ReplyTo is [] (not a reply) or the id of the original message.
 load_history(ConvKey) ->
-    Records = mnesia:dirty_index_read(chat_message, ConvKey, #chat_message.conv_key),
+    Now = erlang:system_time(millisecond),
+    Records = [R || R <- mnesia:dirty_index_read(chat_message, ConvKey, #chat_message.conv_key),
+                    not is_expired(R, Now)],
     Sorted = lists:keysort(#chat_message.id, Records),
     Len = length(Sorted),
     Trimmed = lists:nthtail(max(0, Len - ?HISTORY_LIMIT), Sorted),
@@ -144,7 +154,57 @@ load_history(ConvKey) ->
       R#chat_message.private, R#chat_message.reactions, R#chat_message.preview,
       R#chat_message.reply_to, R#chat_message.deleted =:= true,
       case R#chat_message.ts of T when is_integer(T) -> T; _ -> 0 end,
-      R#chat_message.edited =:= true} || R <- Trimmed].
+      R#chat_message.edited =:= true,
+      case R#chat_message.expires of E when is_integer(E) -> E; _ -> 0 end} || R <- Trimmed].
+
+is_expired(#chat_message{expires = E}, Now) when is_integer(E) -> E =< Now;
+is_expired(_, _) -> false.
+
+%% Disappearing-messages timer for a conversation, in seconds (0 = off).
+%% Applies to messages saved from now on; older ones keep whatever expiry
+%% (or none) they were saved with.
+set_ttl(ConvKey, Secs) ->
+    ok = mnesia:dirty_write((setting_or_new(ConvKey))#conv_setting{ttl = Secs}).
+
+setting_or_new(ConvKey) ->
+    case mnesia:dirty_read(conv_setting, ConvKey) of
+        [S] -> S;
+        [] -> #conv_setting{conv_key = ConvKey}
+    end.
+
+%% Group description + icon URL, kept beside the timer setting so editing
+%% either never clobbers the other (and group membership rewrites, which
+%% replace the whole chat_group row, never touch them). Unset reads as "".
+set_group_meta(ConvKey, Description, Icon) ->
+    ok = mnesia:dirty_write((setting_or_new(ConvKey))#conv_setting{description = Description, icon = Icon}).
+
+get_group_meta(ConvKey) ->
+    #conv_setting{description = D, icon = I} = setting_or_new(ConvKey),
+    {case D of L when is_list(L) -> L; _ -> "" end,
+     case I of L2 when is_list(L2) -> L2; _ -> "" end}.
+
+get_ttl(ConvKey) ->
+    case mnesia:dirty_read(conv_setting, ConvKey) of
+        [#conv_setting{ttl = T}] when is_integer(T) -> T;
+        _ -> 0
+    end.
+
+get_expires(MessageId) ->
+    case mnesia:dirty_read(chat_message, MessageId) of
+        [#chat_message{expires = E}] when is_integer(E) -> E;
+        _ -> 0
+    end.
+
+%% Permanently removes messages whose timer has run out. Clients hide
+%% expired messages themselves at the same instant; this just reclaims
+%% storage (and guarantees they never come back in a later history load).
+sweep() ->
+    Now = erlang:system_time(millisecond),
+    Expired = mnesia:dirty_select(chat_message,
+        [{#chat_message{expires = '$1', _ = '_'},
+          [{is_integer, '$1'}, {'=<', '$1', Now}], ['$_']}]),
+    lists:foreach(fun(R) -> mnesia:dirty_delete(chat_message, R#chat_message.id) end, Expired),
+    length(Expired).
 
 %% Replaces the text of the sender's own, not-yet-deleted message. Same
 %% ownership rule as delete_message/2, enforced here. Any cached link

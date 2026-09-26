@@ -22,6 +22,8 @@ struct ChatMessage: Identifiable, Equatable {
     var time: Date? = nil
     var edited: Bool = false
     var preview: LinkPreview? = nil
+    /// Disappearing messages: hidden (and dropped) once this passes.
+    var expires: Date? = nil
 
     enum DeliveryStatus { case sent, delivered, read }
 

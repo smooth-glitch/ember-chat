@@ -935,6 +935,12 @@ ws_loop(Socket, Name, Buf) ->
         {group_system, GroupName, Text} ->
             ws_send_group_system(Socket, GroupName, Text),
             ws_loop(Socket, Name, Buf);
+        {group_meta, GroupName, Desc, Icon} ->
+            ws_send_group_meta(Socket, GroupName, Desc, Icon),
+            ws_loop(Socket, Name, Buf);
+        {disappear_set, Scope, Target, Secs, By} ->
+            ws_send_disappear(Socket, Scope, Target, Secs, By),
+            ws_loop(Socket, Name, Buf);
         {group_members, GroupName, Members, Owner} ->
             ws_send_group_members(Socket, GroupName, Members, Owner),
             ws_loop(Socket, Name, Buf);
@@ -1142,10 +1148,12 @@ handle_line(Socket, Name, "/history " ++ Rest) ->
             send_history_payload(Socket, "global", [], chat_store:load_history("global"));
         ["dm", Other] ->
             Key = chat_store:dm_key(Name, Other),
-            send_history_payload(Socket, "dm", [{"with", Other}], chat_store:load_history(Key));
+            send_history_payload(Socket, "dm", [{"with", Other}], chat_store:load_history(Key)),
+            ws_send_disappear(Socket, "dm", Other, chat_store:get_ttl(Key), "");
         ["group", GroupName] ->
             Key = "group:" ++ GroupName,
-            send_history_payload(Socket, "group", [{"group", GroupName}], chat_store:load_history(Key));
+            send_history_payload(Socket, "group", [{"group", GroupName}], chat_store:load_history(Key)),
+            ws_send_disappear(Socket, "group", GroupName, chat_store:get_ttl(Key), "");
         _ ->
             ok
     end;
@@ -1283,6 +1291,68 @@ handle_line(Socket, Name, "/addmember " ++ Rest) ->
         _ ->
             ws_send_json(Socket, "error", "Usage: /addmember <group> <username>")
     end;
+%% /groupinfo <group> -- current description + icon, to the asker only.
+handle_line(Socket, Name, "/groupinfo " ++ GroupName0) ->
+    GroupName = string:trim(GroupName0),
+    case chat_groups:list_members(GroupName) of
+        {ok, Members} ->
+            case lists:member(Name, Members) of
+                true ->
+                    {Desc, Icon} = chat_store:get_group_meta("group:" ++ GroupName),
+                    ws_send_group_meta(Socket, GroupName, Desc, Icon);
+                false -> ok
+            end;
+        _ -> ok
+    end;
+%% /setgroupdesc <group> <text> and /setgroupicon <group> <url> -- owner only.
+handle_line(Socket, Name, "/setgroupdesc " ++ Rest) ->
+    set_group_meta_cmd(Socket, Name, Rest, description);
+handle_line(Socket, Name, "/setgroupicon " ++ Rest) ->
+    set_group_meta_cmd(Socket, Name, Rest, icon);
+%% /disappear <dm Other | group Name> <seconds>   (0 turns it off)
+handle_line(Socket, Name, "/disappear " ++ Rest) ->
+    case string:split(Rest, " ") of
+        ["dm", R2] ->
+            case string:split(R2, " ") of
+                [Other, SecsStr] ->
+                    with_secs(Socket, SecsStr, fun(Secs) ->
+                        chat_store:set_ttl(chat_store:dm_key(Name, Other), Secs),
+                        lists:foreach(
+                            fun({User, Target}) ->
+                                case chat_room:get_pid(User) of
+                                    {ok, Pid} -> Pid ! {disappear_set, "dm", Target, Secs, Name};
+                                    error -> ok
+                                end
+                            end, [{Name, Other}, {Other, Name}])
+                    end);
+                _ -> ok
+            end;
+        ["group", R2] ->
+            case string:split(R2, " ") of
+                [GroupName, SecsStr] ->
+                    case chat_groups:list_members(GroupName) of
+                        {ok, Members} ->
+                            case lists:member(Name, Members) of
+                                true ->
+                                    with_secs(Socket, SecsStr, fun(Secs) ->
+                                        chat_store:set_ttl("group:" ++ GroupName, Secs),
+                                        lists:foreach(
+                                            fun(M) ->
+                                                case chat_room:get_pid(M) of
+                                                    {ok, Pid} -> Pid ! {disappear_set, "group", GroupName, Secs, Name};
+                                                    error -> ok
+                                                end
+                                            end, Members)
+                                    end);
+                                false -> ws_send_json(Socket, "error", "You're not in that group")
+                            end;
+                        _ -> ws_send_json(Socket, "error", "No such group: " ++ GroupName)
+                    end;
+                _ -> ok
+            end;
+        _ ->
+            ok
+    end;
 handle_line(Socket, Name, "/removemember " ++ Rest) ->
     case string:split(Rest, " ") of
         [GroupName, Target] when Target =/= "" ->
@@ -1365,7 +1435,8 @@ handle_line(_Socket, _Name, Text) when
     Text =:= "/typing"; Text =:= "/read"; Text =:= "/pubkey"; Text =:= "/getpubkey";
     Text =:= "/setavatar"; Text =:= "/setstatus"; Text =:= "/getprofile";
     Text =:= "/react"; Text =:= "/delete"; Text =:= "/edit"; Text =:= "/creategroup";
-    Text =:= "/addmember"; Text =:= "/removemember"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
+    Text =:= "/addmember"; Text =:= "/removemember"; Text =:= "/disappear"; Text =:= "/groupinfo";
+    Text =:= "/setgroupdesc"; Text =:= "/setgroupicon"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
     Text =:= "/replygroup" ->
     ok;
 handle_line(_Socket, Name, Text) ->
@@ -1449,7 +1520,8 @@ ws_send_chat(Socket, Type, Id, From, Text, ReplyTo) ->
     ws_send(Socket, json_obj2([
         {"type", {str, Type}}, {"id", {raw, integer_to_list(Id)}},
         {"from", {str, From}}, {"text", {str, Text}},
-        {"ts", {raw, integer_to_list(erlang:system_time(millisecond))}}, reply_field(ReplyTo)])).
+        {"ts", {raw, integer_to_list(erlang:system_time(millisecond))}},
+        {"exp", {raw, integer_to_list(chat_store:get_expires(Id))}}, reply_field(ReplyTo)])).
 
 ws_send_users(Socket, Users) ->
     ws_send(Socket, json_obj2([{"type", {str, "users"}}, {"list", {raw, json_string_array(Users)}}])).
@@ -1468,7 +1540,55 @@ ws_send_group_message(Socket, GroupName, Id, From, Text, ReplyTo) ->
         {"from", {str, From}},
         {"text", {str, Text}},
         {"ts", {raw, integer_to_list(erlang:system_time(millisecond))}},
+        {"exp", {raw, integer_to_list(chat_store:get_expires(Id))}},
         reply_field(ReplyTo)])).
+
+%% Scope "dm": Target is the other user; "group": Target is the group name.
+ws_send_disappear(Socket, Scope, Target, Secs, By) ->
+    ws_send(Socket, json_obj2([
+        {"type", {str, "disappear"}}, {"scope", {str, Scope}}, {"target", {str, Target}},
+        {"seconds", {raw, integer_to_list(Secs)}}, {"by", {str, By}}])).
+
+%% Accepts 0 (off) up to 90 days; anything else is ignored.
+with_secs(Socket, SecsStr, Fun) ->
+    case catch list_to_integer(string:trim(SecsStr)) of
+        Secs when is_integer(Secs), Secs >= 0, Secs =< 7776000 -> Fun(Secs);
+        _ -> ws_send_json(Socket, "error", "Usage: /disappear <dm|group> <target> <seconds 0-7776000>")
+    end.
+
+ws_send_group_meta(Socket, GroupName, Desc, Icon) ->
+    ws_send(Socket, json_obj2([
+        {"type", {str, "group_meta"}}, {"name", {str, GroupName}},
+        {"description", {str, Desc}}, {"icon", {str, Icon}}])).
+
+set_group_meta_cmd(Socket, Name, Rest, Field) ->
+    case string:split(Rest, " ") of
+        [GroupName, Value0] ->
+            Value = string:trim(Value0),
+            case chat_groups:owner(GroupName) of
+                {ok, Name} when length(Value) =< 200; Field =:= icon ->
+                    Key = "group:" ++ GroupName,
+                    {D0, I0} = chat_store:get_group_meta(Key),
+                    {D, I} = case Field of description -> {Value, I0}; icon -> {D0, Value} end,
+                    chat_store:set_group_meta(Key, D, I),
+                    case chat_groups:list_members(GroupName) of
+                        {ok, Members} ->
+                            lists:foreach(
+                                fun(M) ->
+                                    case chat_room:get_pid(M) of
+                                        {ok, Pid} -> Pid ! {group_meta, GroupName, D, I};
+                                        error -> ok
+                                    end
+                                end, Members);
+                        _ -> ok
+                    end;
+                {ok, Name} -> ws_send_json(Socket, "error", "Description too long (max 200 chars)");
+                {ok, _} -> ws_send_json(Socket, "error", "Only the group owner can change this");
+                _ -> ws_send_json(Socket, "error", "No such group: " ++ GroupName)
+            end;
+        _ ->
+            ok
+    end.
 
 ws_send_group_members(Socket, GroupName, Members, Owner) ->
     ws_send(Socket, json_obj2([
@@ -1492,7 +1612,9 @@ ws_send_added_to_group(Socket, GroupName, Members, By) ->
 
 ws_send_groups(Socket, Groups) ->
     Items = [json_obj2([{"name", {str, Name}}, {"members", {raw, json_string_array(Members)}},
-                        {"owner", {str, case chat_groups:owner(Name) of {ok, O} -> O; _ -> "" end}}])
+                        {"owner", {str, case chat_groups:owner(Name) of {ok, O} -> O; _ -> "" end}},
+                        {"description", {str, element(1, chat_store:get_group_meta("group:" ++ Name))}},
+                        {"icon", {str, element(2, chat_store:get_group_meta("group:" ++ Name))}}])
              || {Name, Members} <- Groups],
     ws_send(Socket, json_obj2([
         {"type", {str, "groups"}},
@@ -1509,9 +1631,10 @@ send_history_payload(Socket, Scope, ExtraFields, Items) ->
          {"private", {raw, bool_str(Private)}}, {"reactions", {raw, reactions_json(Reactions)}},
          {"deleted", {raw, bool_str(Deleted)}},
          {"ts", {raw, integer_to_list(Ts)}}, {"edited", {raw, bool_str(Edited)}},
+         {"exp", {raw, integer_to_list(Exp)}},
          reply_field(ReplyTo)]
         ++ preview_fields(Preview))
-                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo, Deleted, Ts, Edited} <- Items],
+                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo, Deleted, Ts, Edited, Exp} <- Items],
     ListJson = "[" ++ string:join(ItemsJson, ",") ++ "]",
     Fields = [{"type", {str, "history"}}, {"scope", {str, Scope}}] ++
              [{K, {str, V}} || {K, V} <- ExtraFields] ++

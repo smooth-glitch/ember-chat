@@ -468,6 +468,79 @@ final class ChatClient {
             .sorted { $0.message.id > $1.message.id }
     }
 
+    private var systemCounter = -2_000_000
+    private var pruneTask: Task<Void, Never>?
+
+    /// Local "X turned on disappearing messages" style line.
+    private func addSystemLine(_ text: String, to key: String) {
+        systemCounter -= 1
+        appendMessage(ChatMessage(id: systemCounter, text: text, from: "", out: false, replyTo: nil, reactions: [], kind: .system), to: key)
+    }
+
+    /// Drops messages whose disappearing timer has run out. The server
+    /// deletes them for good on its own sweep; this just makes them vanish
+    /// from the screen at the right moment.
+    func pruneExpired() {
+        let now = Date()
+        for (key, var conv) in conversations {
+            let before = conv.messages.count
+            let gone = conv.messages.filter { ($0.expires ?? .distantFuture) <= now }
+            guard !gone.isEmpty else { continue }
+            conv.messages.removeAll { ($0.expires ?? .distantFuture) <= now }
+            for m in gone { messagesByID[m.id] = nil; starredIDs.remove(m.id) }
+            if conv.messages.count != before { conversations[key] = conv }
+        }
+    }
+
+    private func startPruning() {
+        pruneTask?.cancel()
+        pruneTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                self?.pruneExpired()
+            }
+        }
+    }
+
+    static func describe(seconds: Int) -> String {
+        switch seconds {
+        case 60: "1 minute"
+        case 86_400: "24 hours"
+        case 604_800: "7 days"
+        case 7_776_000: "90 days"
+        default: seconds % 86_400 == 0 ? "\(seconds / 86_400) days" : seconds % 3600 == 0 ? "\(seconds / 3600) hours" : "\(seconds) seconds"
+        }
+    }
+
+    /// Any participant (DM) or member (group) can change it; 0 turns it off.
+    /// The "disappear" push is what updates the UI.
+    func setDisappearing(in convKey: String, seconds: Int) {
+        guard let conv = conversations[convKey] else { return }
+        switch conv.kind {
+        case .dm: send(raw: "/disappear dm \(conv.title) \(seconds)")
+        case .group: send(raw: "/disappear group \(conv.title) \(seconds)")
+        case .global: break
+        }
+    }
+
+    private func resolveMediaURL(_ s: String) -> String {
+        guard s.hasPrefix("/") else { return s }
+        var c = httpOrigin
+        c.path = s
+        return c.url?.absoluteString ?? s
+    }
+
+    func requestGroupInfo(_ name: String) { send(raw: "/groupinfo \(name)") }
+
+    func setGroupDescription(_ name: String, _ text: String) {
+        send(raw: "/setgroupdesc \(name) \(text.trimmingCharacters(in: .whitespacesAndNewlines))")
+    }
+
+    func uploadGroupIcon(fileURL: URL, group name: String) async {
+        guard let url = await upload(fileURL: fileURL, filename: "icon.jpg", mimeType: "image/jpeg") else { return }
+        send(raw: "/setgroupicon \(name) \(url)")
+    }
+
     /// Set when a notification is tapped; ChatsTab consumes it to open that chat.
     var pendingOpenKey: String?
 
@@ -528,6 +601,7 @@ final class ChatClient {
         switch type {
         case "welcome":
             state = .connected
+            startPruning()
             myName = (json["name"] as? String) ?? myName
             send(raw: "/list")
             send(raw: "/groups")
@@ -545,7 +619,7 @@ final class ChatClient {
         case "chat":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String else { return }
             typingUsers["global"]?.remove(from)
-            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: "global")
+            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"]), expires: Self.date(json["exp"])), to: "global")
 
         case "private":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String else { return }
@@ -557,7 +631,7 @@ final class ChatClient {
             typingUsers[key]?.remove(from)
             ensureDMKey(for: from) // so a reply we send back can encrypt, and the UI can show the lock
             let decoded = decryptIfNeeded(text, from: from)
-            appendMessage(ChatMessage(id: id, text: decoded, from: from, out: false, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: key)
+            appendMessage(ChatMessage(id: id, text: decoded, from: from, out: false, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"]), expires: Self.date(json["exp"])), to: key)
 
         case "group_message":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String, let group = json["group"] as? String else { return }
@@ -567,7 +641,7 @@ final class ChatClient {
                 conversationOrder.append(key)
             }
             typingUsers[key]?.remove(from)
-            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: key)
+            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"]), expires: Self.date(json["exp"])), to: key)
 
         case "group_system":
             guard let group = json["group"] as? String, let text = json["text"] as? String else { return }
@@ -585,6 +659,31 @@ final class ChatClient {
                 conversations[key]?.members = members
             }
 
+        case "disappear":
+            guard let scope = json["scope"] as? String, let target = json["target"] as? String,
+                  let secs = (json["seconds"] as? NSNumber)?.intValue else { return }
+            let key = scope == "dm" ? Conversation.key(dm: target) : Conversation.key(group: target)
+            if conversations[key] == nil, scope == "dm" {
+                conversations[key] = Conversation(id: key, kind: .dm, title: target)
+                conversationOrder.append(key)
+            }
+            guard conversations[key] != nil else { return }
+            let changed = conversations[key]?.disappearSeconds != secs
+            conversations[key]?.disappearSeconds = secs
+            // "by" is empty when this is just the current setting sent with history.
+            if let by = json["by"] as? String, !by.isEmpty, changed {
+                let who = by == myName ? "You" : by
+                addSystemLine(secs == 0 ? "\(who) turned off disappearing messages" : "\(who) set messages to disappear after \(Self.describe(seconds: secs))", to: key)
+            }
+
+        case "group_meta":
+            guard let name = json["name"] as? String else { return }
+            let key = Conversation.key(group: name)
+            guard conversations[key] != nil else { return }
+            conversations[key]?.groupDescription = (json["description"] as? String) ?? ""
+            let icon = (json["icon"] as? String) ?? ""
+            conversations[key]?.iconURL = icon.isEmpty ? nil : resolveMediaURL(icon)
+
         case "group_members":
             // Live membership/owner change pushed to every member.
             guard let name = json["name"] as? String else { return }
@@ -600,6 +699,8 @@ final class ChatClient {
                 let key = Conversation.key(group: name)
                 let members = (g["members"] as? [String]) ?? []
                 let owner = (g["owner"] as? String) ?? ""
+                let desc = (g["description"] as? String) ?? ""
+                let icon = (g["icon"] as? String) ?? ""
                 if conversations[key] == nil {
                     conversations[key] = Conversation(id: key, kind: .group, title: name, members: members, owner: owner)
                     conversationOrder.append(key)
@@ -607,6 +708,8 @@ final class ChatClient {
                     conversations[key]?.members = members
                     conversations[key]?.owner = owner
                 }
+                conversations[key]?.groupDescription = desc
+                conversations[key]?.iconURL = icon.isEmpty ? nil : resolveMediaURL(icon)
             }
 
         case "left_group":
@@ -634,7 +737,7 @@ final class ChatClient {
             let historical: [ChatMessage] = list.compactMap { item in
                 guard let id = item["id"] as? Int, let from = item["from"] as? String, let text = item["text"] as? String else { return nil }
                 let decoded = dmPartner.map { decryptIfNeeded(text, from: $0) } ?? text
-                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat, deleted: (item["deleted"] as? Bool) ?? false, time: Self.date(item["ts"]), edited: (item["edited"] as? Bool) ?? false, preview: Self.preview(item))
+                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat, deleted: (item["deleted"] as? Bool) ?? false, time: Self.date(item["ts"]), edited: (item["edited"] as? Bool) ?? false, preview: Self.preview(item), expires: Self.date(item["exp"]))
                 if blockedUsers.contains(from) && from != myName { return nil }
                 messagesByID[id] = (key, msg)
                 return msg

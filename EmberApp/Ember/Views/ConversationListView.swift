@@ -162,7 +162,10 @@ private struct ChatsTab: View {
             client.pendingOpenKey = nil
         }
         .task {
-            if let key = ProcessInfo.processInfo.environment["EMBER_OPEN"], client.conversations[key] != nil {
+            if let key = ProcessInfo.processInfo.environment["EMBER_OPEN"] {
+                // Groups/DMs arrive a moment after connecting, so wait for it.
+                for _ in 0..<30 where client.conversations[key] == nil { try? await Task.sleep(for: .milliseconds(200)) }
+                guard client.conversations[key] != nil else { return }
                 if split { selection = key } else { path = [key] }
             }
         }
@@ -193,7 +196,20 @@ private struct ChatsTab: View {
             switch conv.kind {
             case .group:
                 Circle().fill(Theme.accent).frame(width: 44, height: 44)
-                    .overlay { Image(systemName: "person.3.fill").font(.system(size: 16)).foregroundStyle(.white) }
+                    .overlay {
+                        if let icon = conv.iconURL, let url = URL(string: icon) {
+                            AsyncImage(url: url) { phase in
+                                if case .success(let image) = phase {
+                                    image.resizable().aspectRatio(contentMode: .fill)
+                                } else {
+                                    Image(systemName: "person.3.fill").font(.system(size: 16)).foregroundStyle(.white)
+                                }
+                            }
+                            .clipShape(.circle)
+                        } else {
+                            Image(systemName: "person.3.fill").font(.system(size: 16)).foregroundStyle(.white)
+                        }
+                    }
             case .global:
                 Circle().fill(Theme.accentGradient).frame(width: 44, height: 44)
                     .overlay { Image(systemName: "globe").font(.system(size: 16)).foregroundStyle(.white) }

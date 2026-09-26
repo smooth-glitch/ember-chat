@@ -33,6 +33,9 @@ struct ChatView: View {
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showFileImporter = false
+    @State private var iconItem: PhotosPickerItem?
+    @State private var editingDescription = false
+    @State private var descriptionDraft = ""
     @State private var locationFetcher = LocationFetcher()
     @State private var sharingLocation = false
     @State private var searchActive = false
@@ -130,7 +133,17 @@ struct ChatView: View {
                     }
                     .animation(.spring(duration: 0.3, bounce: 0.2), value: isAtBottom)
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        if searchActive { searchBar(proxy: proxy) }
+                        VStack(spacing: 6) {
+                            if let secs = conversation?.disappearSeconds, secs > 0 {
+                                Label("Messages disappear after \(ChatClient.describe(seconds: secs))", systemImage: "timer")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(Theme.text)
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .glassEffect(.regular, in: .capsule)
+                                    .padding(.top, 4)
+                            }
+                            if searchActive { searchBar(proxy: proxy) }
+                        }
                     }
                     .safeAreaInset(edge: .bottom, spacing: 0) {
                         VStack(spacing: 8) {
@@ -219,6 +232,25 @@ struct ChatView: View {
                 } label: { Image(systemName: searchActive ? "xmark" : "magnifyingglass") }
             }
             }
+            if conversation?.kind != .global && !selectionMode {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        ForEach([0, 60, 86_400, 604_800, 7_776_000], id: \.self) { secs in
+                            Button {
+                                client.setDisappearing(in: convKey, seconds: secs)
+                            } label: {
+                                if (conversation?.disappearSeconds ?? 0) == secs {
+                                    Label(secs == 0 ? "Off" : ChatClient.describe(seconds: secs), systemImage: "checkmark")
+                                } else {
+                                    Text(secs == 0 ? "Off" : ChatClient.describe(seconds: secs))
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: (conversation?.disappearSeconds ?? 0) > 0 ? "timer.circle.fill" : "timer")
+                    }
+                }
+            }
             if conversation?.kind == .group && !selectionMode {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showMembers = true } label: { Image(systemName: "person.2.fill") }
@@ -265,7 +297,10 @@ struct ChatView: View {
         }
         .onAppear {
             client.setActive(convKey)
+            // Test hook (like EMBER_OPEN): pop the members sheet open for screenshots.
+            if ProcessInfo.processInfo.environment["EMBER_MEMBERS"] != nil, convKey.hasPrefix("group:") { showMembers = true }
             if convKey.hasPrefix("dm:") { client.refreshProfile(for: String(convKey.dropFirst(3))) }
+            if convKey.hasPrefix("group:") { client.requestGroupInfo(String(convKey.dropFirst(6))) }
             if draft.isEmpty, let saved = client.drafts[convKey] { draft = saved }
             // Keyed off convKey directly, not `conversation?.kind` -- a DM
             // opened fresh from the People tab has no conversation entry
@@ -341,7 +376,9 @@ struct ChatView: View {
         let messages = conversation?.messages ?? []
         guard let time = messages[index].time else { return nil }
         let cal = Calendar.current
-        if index > 0, let prev = messages[index - 1].time, cal.isDate(prev, inSameDayAs: time) { return nil }
+        // Compare against the previous *timestamped* message, so system lines
+        // (which carry no time) in between don't restart the day.
+        if let prev = messages[..<index].last(where: { $0.time != nil })?.time, cal.isDate(prev, inSameDayAs: time) { return nil }
         if cal.isDateInToday(time) { return "Today" }
         if cal.isDateInYesterday(time) { return "Yesterday" }
         return time.formatted(.dateTime.weekday(.wide).month().day())
@@ -574,6 +611,14 @@ struct ChatView: View {
         await client.uploadAndSend(fileURL: tmp, filename: url.lastPathComponent, mimeType: "application/pdf", in: convKey)
     }
 
+    private func uploadGroupIcon(_ item: PhotosPickerItem?, group: String) async {
+        guard let item, let data = try? await item.loadTransferable(type: Data.self) else { return }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+        try? data.write(to: tmp)
+        await client.uploadGroupIcon(fileURL: tmp, group: group)
+        iconItem = nil
+    }
+
     private func uploadPhotoData(_ data: Data) async {
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
         try? data.write(to: tmpURL)
@@ -650,6 +695,55 @@ struct ChatView: View {
         let addable = client.onlineUsers.filter { $0 != client.myName && !conv.members.contains($0) }
         return NavigationStack {
             List {
+                Section {
+                    VStack(spacing: 12) {
+                        PhotosPicker(selection: $iconItem, matching: .images) {
+                            ZStack(alignment: .bottomTrailing) {
+                                Circle().fill(Theme.accent)
+                                    .frame(width: 84, height: 84)
+                                    .overlay {
+                                        if let icon = conv.iconURL, let url = URL(string: icon) {
+                                            AsyncImage(url: url) { phase in
+                                                if case .success(let image) = phase {
+                                                    image.resizable().aspectRatio(contentMode: .fill)
+                                                } else {
+                                                    Image(systemName: "person.3.fill").font(.system(size: 30)).foregroundStyle(.white)
+                                                }
+                                            }
+                                            .clipShape(.circle)
+                                        } else {
+                                            Image(systemName: "person.3.fill").font(.system(size: 30)).foregroundStyle(.white)
+                                        }
+                                    }
+                                if iAmOwner {
+                                    Image(systemName: "camera.fill").font(.system(size: 11)).foregroundStyle(.white)
+                                        .frame(width: 26, height: 26).background(Theme.accent, in: .circle)
+                                        .overlay(Circle().stroke(Theme.bg, lineWidth: 2))
+                                }
+                            }
+                        }
+                        .disabled(!iAmOwner)
+                        .onChange(of: iconItem) { _, item in Task { await uploadGroupIcon(item, group: conv.title) } }
+
+                        if !conv.groupDescription.isEmpty {
+                            Text(conv.groupDescription)
+                                .font(.system(size: 14)).foregroundStyle(Theme.text)
+                                .multilineTextAlignment(.center)
+                        } else if iAmOwner {
+                            Text("Add a group description").font(.system(size: 14)).foregroundStyle(Theme.muted)
+                        }
+                        if iAmOwner {
+                            Button(conv.groupDescription.isEmpty ? "Add Description" : "Edit Description") {
+                                descriptionDraft = conv.groupDescription
+                                editingDescription = true
+                            }
+                            .font(.system(size: 14, weight: .semibold))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .listRowBackground(Color.clear)
+                }
                 Section("\(conv.members.count) members") {
                     ForEach(conv.members, id: \.self) { user in
                         HStack(spacing: 12) {
@@ -703,6 +797,13 @@ struct ChatView: View {
             .navigationTitle(conv.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Close") { showMembers = false } } }
+            .alert("Group Description", isPresented: $editingDescription) {
+                TextField("Description", text: $descriptionDraft)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") { client.setGroupDescription(conv.title, descriptionDraft) }
+            } message: {
+                Text("Up to 200 characters. Everyone in the group can see it.")
+            }
         }
         .presentationDetents([.medium, .large])
     }

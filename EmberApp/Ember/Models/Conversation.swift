@@ -17,6 +17,11 @@ struct Conversation: Identifiable, Equatable {
     /// Groups only: the one member who can remove others. Empty until the
     /// server says (older servers never send it).
     var owner: String = ""
+    /// Disappearing-messages timer in seconds; 0 = off.
+    var disappearSeconds = 0
+    /// Groups only, set by the owner.
+    var groupDescription = ""
+    var iconURL: String?
     var messages: [ChatMessage] = []
     var historyLoaded = false
 
