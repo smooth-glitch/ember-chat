@@ -118,6 +118,7 @@ handle_cast({unregister, Name}, State = #state{users = Users, monitors = Monitor
                 false -> true
             end
         end, Monitors),
+    chat_store:set_last_seen(Name),
     notify_all(NewUsers, {system, io_lib:format("~s has left", [Name])}),
     {noreply, State#state{users = NewUsers, monitors = NewMonitors}};
 handle_cast({broadcast, From, Text, ReplyTo}, State = #state{users = Users}) ->
@@ -221,6 +222,7 @@ handle_info({'DOWN', Ref, process, _Pid, _Reason}, State = #state{users = Users,
         {ok, Name} ->
             NewUsers = maps:remove(Name, Users),
             NewMonitors = maps:remove(Ref, Monitors),
+            chat_store:set_last_seen(Name),
             notify_all(NewUsers, {system, io_lib:format("~s has disconnected", [Name])}),
             {noreply, State#state{users = NewUsers, monitors = NewMonitors}};
         error ->

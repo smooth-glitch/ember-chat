@@ -1186,7 +1186,11 @@ handle_line(Socket, _Name, "/getprofile " ++ Other) ->
     {Avatar, Status} = chat_store:get_profile(Other),
     AvatarField = case Avatar of undefined -> {"avatar", {raw, "null"}}; A -> {"avatar", {str, A}} end,
     StatusField = case Status of undefined -> {"status", {raw, "null"}}; S -> {"status", {str, S}} end,
-    ws_send(Socket, json_obj2([{"type", {str, "profile"}}, {"user", {str, Other}}, AvatarField, StatusField]));
+    LastSeenField = case chat_store:get_last_seen(Other) of
+        undefined -> {"lastSeen", {raw, "null"}};
+        T -> {"lastSeen", {raw, integer_to_list(T)}}
+    end,
+    ws_send(Socket, json_obj2([{"type", {str, "profile"}}, {"user", {str, Other}}, AvatarField, StatusField, LastSeenField]));
 handle_line(_Socket, _Name, "/gifsearch") ->
     %% No query yet -- e.g. the picker was just opened. The trailing-space
     %% variant below can never carry an empty Query itself: handle_ws_data

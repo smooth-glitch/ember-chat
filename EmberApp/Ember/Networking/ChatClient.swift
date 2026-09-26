@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+@preconcurrency import UserNotifications
 
 /// Talks to the exact same hand-rolled WebSocket protocol web/index.html
 /// uses -- plain-text commands out, JSON pushes in. No REST API; everything
@@ -92,6 +93,8 @@ final class ChatClient {
     private(set) var dmEncrypted: Set<String> = []
 
     func connect(as name: String) {
+        NotificationManager.shared.requestAuthorization()
+        NotificationManager.onOpen = { [weak self] key in self?.pendingOpenKey = key }
         manualDisconnect = false
         myName = name
         state = .connecting
@@ -179,6 +182,16 @@ final class ChatClient {
     /// Fetch-on-demand rather than broadcast with the online list -- a
     /// screen calls this for whichever usernames it's actually about to
     /// render (People tab rows, a DM's header).
+    /// username -> when they last disconnected (server-stamped). Only
+    /// meaningful while they're offline.
+    private(set) var lastSeen: [String: Date] = [:]
+
+    /// Re-request even if cached -- used when someone goes offline, since
+    /// their last-seen time only exists after they disconnect.
+    func refreshProfile(for user: String) {
+        send(raw: "/getprofile \(user)")
+    }
+
     func fetchProfile(for user: String) {
         guard profiles[user] == nil else { return }
         send(raw: "/getprofile \(user)")
@@ -455,9 +468,16 @@ final class ChatClient {
             .sorted { $0.message.id > $1.message.id }
     }
 
+    /// Set when a notification is tapped; ChatsTab consumes it to open that chat.
+    var pendingOpenKey: String?
+
     func setActive(_ key: String?) {
         activeConvKey = key
-        if let key { unreadCounts[key] = nil }
+        if let key {
+            unreadCounts[key] = nil
+            NotificationManager.shared.clear(convKey: key)
+            NotificationManager.shared.setBadge(totalUnread)
+        }
     }
 
     func togglePin(_ key: String) {
@@ -470,6 +490,16 @@ final class ChatClient {
         if !msg.out, msg.kind == .chat, blockedUsers.contains(msg.from) { return }
         if !msg.out, msg.kind == .chat, convKey != activeConvKey {
             unreadCounts[convKey, default: 0] += 1
+            if !mutedKeys.contains(convKey), !archivedKeys.contains(convKey) {
+                let preview = msg.isImageMessage ? "📷 Photo" : msg.isAudioMessage ? "🎤 Voice message" : msg.isDocumentMessage ? "📄 \(msg.documentName)" : msg.text
+                let isDM = conv.kind == .dm
+                NotificationManager.shared.post(
+                    title: isDM ? msg.from : conv.title,
+                    body: isDM ? preview : "\(msg.from): \(preview)",
+                    convKey: convKey
+                )
+                NotificationManager.shared.setBadge(totalUnread)
+            }
         }
         conv.messages.append(msg)
         conversations[convKey] = conv
@@ -683,6 +713,11 @@ final class ChatClient {
             let avatar = json["avatar"] as? String
             let status = json["status"] as? String
             profiles[user] = (avatar, status)
+            // Only the /getprofile reply carries lastSeen; the live
+            // avatar/status broadcast doesn't, so don't clear it then.
+            if let ms = (json["lastSeen"] as? NSNumber)?.doubleValue, ms > 0 {
+                lastSeen[user] = Date(timeIntervalSince1970: ms / 1000)
+            }
             if user == myName {
                 myAvatarURL = avatar
                 myStatus = status
@@ -707,5 +742,55 @@ final class ChatClient {
         default:
             break
         }
+    }
+}
+
+
+/// Local notifications for messages in chats that aren't open. Works while
+/// the app is in the foreground (banner over another chat) and for the short
+/// time iOS keeps the socket alive after backgrounding -- true push while
+/// the app is closed would need APNs and a server-side sender.
+final class NotificationManager: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = NotificationManager()
+
+    /// Called on the main actor with the tapped notification's conversation key.
+    @MainActor static var onOpen: ((String) -> Void)?
+
+    func requestAuthorization() {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    func post(title: String, body: String, convKey: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.threadIdentifier = convKey
+        content.userInfo = ["convKey": convKey]
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    func setBadge(_ count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(count)
+    }
+
+    func clear(convKey: String) {
+        let center = UNUserNotificationCenter.current()
+        center.getDeliveredNotifications { delivered in
+            let ids = delivered.filter { $0.request.content.threadIdentifier == convKey }.map(\.request.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: ids)
+        }
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard let key = response.notification.request.content.userInfo["convKey"] as? String else { return }
+        await MainActor.run { Self.onOpen?(key) }
     }
 }

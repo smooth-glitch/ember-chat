@@ -251,6 +251,12 @@ struct ChatView: View {
         .sheet(isPresented: $showMembers) {
             if let conversation { membersSheet(for: conversation) }
         }
+        .onChange(of: client.onlineUsers) { old, new in
+            // Someone we're chatting with just dropped offline: fetch their fresh last-seen time.
+            guard convKey.hasPrefix("dm:") else { return }
+            let user = String(convKey.dropFirst(3))
+            if old.contains(user) && !new.contains(user) { client.refreshProfile(for: user) }
+        }
         .sensoryFeedback(trigger: sendCount) { _, _ in hapticsOn ? .impact(weight: .light) : nil }
         .sensoryFeedback(trigger: actionSheetMessage?.id) { _, _ in hapticsOn ? .selection : nil }
         .onDisappear {
@@ -259,6 +265,7 @@ struct ChatView: View {
         }
         .onAppear {
             client.setActive(convKey)
+            if convKey.hasPrefix("dm:") { client.refreshProfile(for: String(convKey.dropFirst(3))) }
             if draft.isEmpty, let saved = client.drafts[convKey] { draft = saved }
             // Keyed off convKey directly, not `conversation?.kind` -- a DM
             // opened fresh from the People tab has no conversation entry
@@ -287,7 +294,16 @@ struct ChatView: View {
         switch conversation?.kind {
         case .global: return "\(client.onlineUsers.count) online"
         case .group: return "\(conversation?.members.count ?? 0) members"
-        default: return "online"
+        case .dm:
+            guard let user = conversation?.title else { return "" }
+            if client.onlineUsers.contains(user) { return "online" }
+            guard let seen = client.lastSeen[user] else { return "offline" }
+            let cal = Calendar.current
+            let time = seen.formatted(.dateTime.hour().minute())
+            if cal.isDateInToday(seen) { return "last seen today at \(time)" }
+            if cal.isDateInYesterday(seen) { return "last seen yesterday at \(time)" }
+            return "last seen \(seen.formatted(.dateTime.month().day()))"
+        default: return ""
         }
     }
 

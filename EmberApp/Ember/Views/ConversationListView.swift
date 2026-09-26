@@ -156,6 +156,11 @@ private struct ChatsTab: View {
         .background(Theme.bg)
         // Test hook (same idea as EMBER_AUTOJOIN): open a chat straight away
         // so it can be screenshotted without tapping. Inert on a normal launch.
+        .onChange(of: client.pendingOpenKey) { _, key in
+            guard let key, client.conversations[key] != nil else { return }
+            if split { selection = key } else { path = [key] }
+            client.pendingOpenKey = nil
+        }
         .task {
             if let key = ProcessInfo.processInfo.environment["EMBER_OPEN"], client.conversations[key] != nil {
                 if split { selection = key } else { path = [key] }

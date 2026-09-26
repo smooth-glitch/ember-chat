@@ -10,7 +10,7 @@
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
          delete_message/2, edit_message/3,
          save_link_preview/2, find_or_create_account/3,
-         set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1]).
+         set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1, set_last_seen/1, get_last_seen/1]).
 
 -record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false, edited = false}).
 -record(chat_group, {name, owner, members}).
@@ -26,7 +26,7 @@
 %% hasn't opened the app since this shipped) has pubkey = undefined, and
 %% DMs to them fall back to plaintext with that fact surfaced in the UI
 %% rather than silently pretending to encrypt.
--record(user_profile, {username, pubkey = undefined, avatar_url = undefined, status = undefined}).
+-record(user_profile, {username, pubkey = undefined, avatar_url = undefined, status = undefined, last_seen = undefined}).
 
 -define(HISTORY_LIMIT, 50).
 
@@ -300,6 +300,17 @@ set_status(Username, Status) ->
 %% {AvatarUrlOrUndefined, StatusOrUndefined} -- pubkey isn't included here,
 %% it's fetched separately (get_pubkey/1) only when actually starting a DM,
 %% not broadcast with every profile lookup.
+%% Stamped when a user disconnects; rows written before this field existed
+%% carry [] in it after migration, which reads back as "unknown".
+set_last_seen(Username) ->
+    ok = mnesia:dirty_write((profile_or_new(Username))#user_profile{last_seen = erlang:system_time(millisecond)}).
+
+get_last_seen(Username) ->
+    case mnesia:dirty_read(user_profile, Username) of
+        [#user_profile{last_seen = T}] when is_integer(T) -> T;
+        _ -> undefined
+    end.
+
 get_profile(Username) ->
     case mnesia:dirty_read(user_profile, Username) of
         [#user_profile{avatar_url = A, status = S}] -> {A, S};
