@@ -19,6 +19,7 @@ struct MessageBubbleView: View {
     /// Briefly true after jumping here from a reply quote.
     var highlighted = false
     var starred = false
+    var onTapReactions: () -> Void = {}
 
     @State private var dragOffset: CGFloat = 0
     @State private var swipeArmed = false
@@ -193,7 +194,7 @@ struct MessageBubbleView: View {
                 AudioMessagePlayer(url: url, tint: message.out ? .white : Theme.accent)
             } else {
                 Text(linkified(message.text))
-                    .font(.system(size: 15))
+                    .font(.system(size: message.isEmojiOnly ? 44 : 15))
                     .foregroundStyle(message.out ? .white : Theme.text)
 
                 if let preview = message.preview, let url = URL(string: preview.url) {
@@ -215,7 +216,9 @@ struct MessageBubbleView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
         .background {
-            if message.out {
+            if message.isEmojiOnly && message.replyTo == nil {
+                Color.clear
+            } else if message.out {
                 Theme.accentGradient
             } else {
                 Theme.panel
@@ -329,6 +332,8 @@ struct MessageBubbleView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .padding(.horizontal, 8).padding(.vertical, 3)
                     .background(Theme.accentSoft, in: .capsule)
+                    .contentShape(.capsule)
+                    .onTapGesture { onTapReactions() }
             }
         }
     }

@@ -57,6 +57,15 @@ struct ChatMessage: Identifiable, Equatable {
         return [".gif", ".png", ".jpg", ".jpeg", ".webp"].contains { path.hasSuffix($0) }
     }
 
+    /// One to three emoji and nothing else -- shown big with no bubble.
+    var isEmojiOnly: Bool {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= 3, !isImageMessage, !isAudioMessage else { return false }
+        return t.unicodeScalars.allSatisfy {
+            ($0.properties.isEmoji && $0.value > 0x238C) || $0.value == 0xFE0F || $0.value == 0x200D
+        }
+    }
+
     /// A shared PDF: a bare uploaded-file URL ending in `.pdf`, with the
     /// original filename carried in a `?name=` query so the card can show it.
     var isDocumentMessage: Bool {

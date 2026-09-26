@@ -52,7 +52,25 @@ init() ->
                  [{disc_copies, [node()]}]),
     ok = mnesia:wait_for_tables([chat_message, chat_group, chat_account, user_profile, conv_setting, status_post], 10000),
     migrate_preview_shape(),
+    init_id_counters(),
     ok.
+
+%% Ids must keep increasing across server restarts. erlang:unique_integer/1
+%% restarts from 1 with every VM start, so after a restart new messages
+%% reused old ids: they silently overwrote the stored message with that id
+%% and sorted to the top of history. Instead resume from the highest id
+%% already on disk.
+init_id_counters() ->
+    lists:foreach(
+        fun(Table) ->
+            Max = lists:max([0 | [K || K <- mnesia:dirty_all_keys(Table), is_integer(K)]]),
+            Ref = atomics:new(1, []),
+            atomics:put(Ref, 1, Max),
+            persistent_term:put({?MODULE, id_counter, Table}, Ref)
+        end, [chat_message, status_post]).
+
+next_id(Table) ->
+    atomics:add_get(persistent_term:get({?MODULE, id_counter, Table}), 1, 1).
 
 %% Preview used to be stored as a 3-tuple {Title, Description, Image}; it's
 %% now {Url, Title, Description, Image} so the url travels with the rest of
@@ -129,7 +147,7 @@ save_message(ConvKey, From, Text, Kind, Private) ->
 %% (messagesById), so it can render the quoted snippet from its own cache
 %% without this module duplicating (and risking going stale on) that data.
 save_message(ConvKey, From, Text, Kind, Private, ReplyTo) ->
-    Id = erlang:unique_integer([monotonic, positive]),
+    Id = next_id(chat_message),
     Now = erlang:system_time(millisecond),
     Expires = case get_ttl(ConvKey) of
         0 -> undefined;
@@ -218,7 +236,7 @@ sweep() ->
 %% Kind is "text" (Content = the text, Bg = palette index) or "image"
 %% (Content = an uploaded image URL). Returns the new post's id.
 post_status(User, Kind, Content, Bg) ->
-    Id = erlang:unique_integer([monotonic, positive]),
+    Id = next_id(status_post),
     Now = erlang:system_time(millisecond),
     ok = mnesia:dirty_write(#status_post{id = Id, user = User, kind = Kind, content = Content,
                                           bg = Bg, ts = Now, expires = Now + ?STATUS_TTL_MS}),

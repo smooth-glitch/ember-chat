@@ -27,6 +27,7 @@ struct ChatView: View {
     @AppStorage("ember.haptics") private var hapticsOn = true
     @State private var editingMessage: ChatMessage?
     @State private var forwardBatch: ForwardBatch?
+    @State private var reactionsMessage: ChatMessage?
     @State private var selectionMode = false
     @State private var selectedIDs: Set<Int> = []
     @State private var showDeleteConfirm = false
@@ -71,7 +72,8 @@ struct ChatView: View {
                                     onTapQuote: { id in jump(to: id, proxy: proxy) },
                                     onTapAvatar: { profileUser = UserRef(name: $0) },
                                     highlighted: highlightID == message.id,
-                                    starred: client.starredIDs.contains(message.id)
+                                    starred: client.starredIDs.contains(message.id),
+                                    onTapReactions: { reactionsMessage = message }
                                 )
                                 .overlay {
                                     if selectionMode && message.kind == .chat {
@@ -218,6 +220,11 @@ struct ChatView: View {
                         Text(conversation?.title ?? "").font(.system(size: 15, weight: .semibold))
                         Text(topbarSubtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                     }
+                    .contentShape(.rect)
+                    .onTapGesture {
+                        // Tap a DM's header to see who you're talking to.
+                        if conversation?.kind == .dm, let title = conversation?.title { profileUser = UserRef(name: title) }
+                    }
                 }
             }
             if selectionMode {
@@ -260,6 +267,7 @@ struct ChatView: View {
         .toolbarBackground(Theme.header, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        .sheet(item: $reactionsMessage) { ReactionsSheet(client: client, convKey: convKey, messageID: $0.id) }
         .sheet(item: $forwardBatch) { ForwardSheet(client: client, messages: $0.messages) { exitSelection() } }
         .fullScreenCover(isPresented: $showCamera) {
             CameraPicker { data in
@@ -322,6 +330,7 @@ struct ChatView: View {
     }
 
     private var topbarSubtitle: String {
+        if client.state == .reconnecting { return "Reconnecting…" }
         let typers = client.typingUsers[convKey] ?? []
         if !typers.isEmpty {
             return "\(typers.sorted().joined(separator: ", ")) \(typers.count == 1 ? "is" : "are") typing…"
@@ -1145,5 +1154,44 @@ private final class LocationFetcher: NSObject, CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in self.finish(nil) }
+    }
+}
+
+/// Who reacted with what. Reads the live message so it updates as reactions
+/// change; tapping your own reaction removes it (the server toggles).
+private struct ReactionsSheet: View {
+    @Bindable var client: ChatClient
+    let convKey: String
+    let messageID: Int
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            let reactions = client.conversations[convKey]?.messages.first(where: { $0.id == messageID })?.reactions ?? []
+            List {
+                if reactions.isEmpty {
+                    Text("No reactions").foregroundStyle(Theme.muted)
+                }
+                ForEach(Array(reactions.enumerated()), id: \.offset) { _, reaction in
+                    HStack(spacing: 12) {
+                        Text(reaction.emoji).font(.system(size: 26))
+                        Text(reaction.user == client.myName ? "You" : reaction.user).foregroundStyle(Theme.text)
+                        Spacer()
+                        if reaction.user == client.myName {
+                            Text("Tap to remove").font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                    }
+                    .contentShape(.rect)
+                    .onTapGesture {
+                        guard reaction.user == client.myName else { return }
+                        client.sendReaction(in: convKey, messageID: messageID, emoji: reaction.emoji)
+                    }
+                }
+            }
+            .navigationTitle("Reactions")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.medium])
     }
 }

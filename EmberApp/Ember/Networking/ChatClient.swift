@@ -14,8 +14,19 @@ final class ChatClient {
         case disconnected
         case connecting
         case connected
+        /// Was connected, the socket dropped, and we're retrying in the
+        /// background (the UI stays on the chat list with a banner).
+        case reconnecting
         case failed(String)
     }
+
+    /// A server-reported problem worth telling the user about ("X isn't
+    /// online", "Only the owner can...") that is *not* a connection failure.
+    var notice: String?
+    private var hasConnectedOnce = false
+    private var reconnectAttempt = 0
+    private var reconnectTask: Task<Void, Never>?
+    var isOnline: Bool { state == .connected }
 
     private(set) var state: ConnectionState = .disconnected
     /// Separate from `state` on purpose: an upload failure isn't a
@@ -96,14 +107,55 @@ final class ChatClient {
         NotificationManager.shared.requestAuthorization()
         NotificationManager.onOpen = { [weak self] key in self?.pendingOpenKey = key }
         manualDisconnect = false
+        hasConnectedOnce = false
+        reconnectAttempt = 0
+        reconnectTask?.cancel()
         myName = name
         state = .connecting
+        openSocket()
+    }
+
+    private func openSocket() {
+        task?.cancel(with: .goingAway, reason: nil)
         let session = URLSession(configuration: .default)
         let task = session.webSocketTask(with: serverURL)
         self.task = task
         task.resume()
-        send(raw: name)
+        send(raw: myName)
         listenForever(on: task)
+    }
+
+    /// Retries with backoff (0.5s, 1s, 2s ... capped at 10s) until the
+    /// socket comes back or the user logs out.
+    private func scheduleReconnect() {
+        guard !manualDisconnect else { return }
+        state = .reconnecting
+        receiveLoopTask?.cancel()
+        task?.cancel(with: .goingAway, reason: nil)
+        reconnectTask?.cancel()
+        let delay = min(0.5 * pow(2, Double(reconnectAttempt)), 10)
+        reconnectAttempt += 1
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled, !self.manualDisconnect else { return }
+            self.openSocket()
+        }
+    }
+
+    /// After a reconnect the socket missed everything sent while it was
+    /// down: drop the stale copies and re-request history for every chat.
+    private func resyncAfterReconnect() {
+        for key in conversationOrder {
+            guard var conv = conversations[key] else { continue }
+            conv.messages.removeAll { $0.kind == .chat }
+            conv.historyLoaded = false
+            conversations[key] = conv
+            switch conv.kind {
+            case .global: break // the server sends global history on join
+            case .dm: send(raw: "/history dm \(conv.title)")
+            case .group: send(raw: "/history group \(conv.title)")
+            }
+        }
     }
 
     /// Fetches (and caches) another user's DM public key, deriving the
@@ -116,6 +168,8 @@ final class ChatClient {
 
     func disconnect() {
         manualDisconnect = true
+        hasConnectedOnce = false
+        reconnectTask?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
         receiveLoopTask?.cancel()
         state = .disconnected
@@ -364,7 +418,11 @@ final class ChatClient {
     private func send(raw text: String) {
         task?.send(.string(text)) { [weak self] error in
             guard let self, let error else { return }
-            Task { @MainActor in self.state = .failed(error.localizedDescription) }
+            // Once we've been connected, a failed send just means the socket
+            // died -- the receive loop notices and reconnects.
+            Task { @MainActor in
+                if !self.hasConnectedOnce { self.state = .failed(error.localizedDescription) }
+            }
         }
     }
 
@@ -383,7 +441,11 @@ final class ChatClient {
                     }
                 } catch {
                     if self.manualDisconnect { return }
-                    self.state = .failed(error.localizedDescription)
+                    if self.hasConnectedOnce {
+                        self.scheduleReconnect()
+                    } else {
+                        self.state = .failed(error.localizedDescription)
+                    }
                     return
                 }
             }
@@ -658,8 +720,12 @@ final class ChatClient {
 
         switch type {
         case "welcome":
+            let wasReconnect = hasConnectedOnce
+            hasConnectedOnce = true
+            reconnectAttempt = 0
             state = .connected
             startPruning()
+            if wasReconnect { resyncAfterReconnect() }
             send(raw: "/statuses")
             myName = (json["name"] as? String) ?? myName
             send(raw: "/list")
@@ -668,7 +734,17 @@ final class ChatClient {
             send(raw: "/getprofile \(myName)") // restore avatar/status set in an earlier session
 
         case "error":
-            state = .failed((json["text"] as? String) ?? "Server error.")
+            let text = (json["text"] as? String) ?? "Server error."
+            switch state {
+            case .connecting:
+                state = .failed(text) // e.g. the username was refused at login
+            case .reconnecting:
+                // Most often "name taken" because the server hasn't noticed the
+                // old socket died yet; back off and try again.
+                scheduleReconnect()
+            default:
+                notice = text // e.g. "isn't online right now": tell the user, stay put
+            }
 
         case "system":
             let text = (json["text"] as? String) ?? ""
