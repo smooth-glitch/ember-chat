@@ -251,12 +251,54 @@ regex_capture(Text, Pattern) ->
     end.
 
 html_unescape(undefined) -> undefined;
-html_unescape(Str) ->
-    Steps = [
-        {"&amp;", "&"}, {"&quot;", "\""}, {"&#39;", "'"}, {"&#x27;", "'"},
-        {"&lt;", "<"}, {"&gt;", ">"}, {"&nbsp;", " "}
-    ],
-    lists:foldl(fun({From, To}, Acc) -> replace_all(Acc, From, To) end, Str, Steps).
+html_unescape(Str) -> unescape(Str).
 
-replace_all(Str, From, To) ->
-    lists:flatten(string:replace(Str, From, To, all)).
+%% Decodes numeric (&#39; &#x3a;) and the common named HTML entities in one
+%% pass. Some sites (nps.gov, for one) entity-encode *every* punctuation
+%% character in og:image, e.g. "https&#x3a;&#x2f;&#x2f;www...", which used to
+%% be stored verbatim and produced a broken image URL.
+unescape([$&, $# | Rest]) ->
+    case numeric_entity(Rest) of
+        {ok, Cp, After} -> [Cp | unescape(After)];
+        error -> [$&, $# | unescape(Rest)]
+    end;
+unescape([$& | Rest]) ->
+    case named_entity(Rest) of
+        {ok, Cp, After} -> [Cp | unescape(After)];
+        error -> [$& | unescape(Rest)]
+    end;
+unescape([C | Rest]) -> [C | unescape(Rest)];
+unescape([]) -> [].
+
+numeric_entity([X | Rest]) when X =:= $x; X =:= $X -> numeric_entity(Rest, 16, []);
+numeric_entity(Rest) -> numeric_entity(Rest, 10, []).
+
+numeric_entity([$; | After], Base, Digits) when Digits =/= [], length(Digits) =< 8 ->
+    try list_to_integer(lists:reverse(Digits), Base) of
+        Cp when Cp >= 32, Cp =< 16#10FFFF, not (Cp >= 16#D800 andalso Cp =< 16#DFFF) -> {ok, Cp, After};
+        _ -> error
+    catch
+        _:_ -> error
+    end;
+numeric_entity([D | Rest], Base, Digits) when length(Digits) < 8 ->
+    case is_digit(D, Base) of
+        true -> numeric_entity(Rest, Base, [D | Digits]);
+        false -> error
+    end;
+numeric_entity(_, _, _) -> error.
+
+is_digit(D, 10) -> D >= $0 andalso D =< $9;
+is_digit(D, 16) -> (D >= $0 andalso D =< $9) orelse (D >= $a andalso D =< $f) orelse (D >= $A andalso D =< $F).
+
+named_entity(Str) ->
+    Names = [{"amp;", $&}, {"quot;", $"}, {"apos;", $'}, {"lt;", $<}, {"gt;", $>}, {"nbsp;", $\s},
+             {"hellip;", 16#2026}, {"mdash;", 16#2014}, {"ndash;", 16#2013},
+             {"rsquo;", 16#2019}, {"lsquo;", 16#2018}, {"rdquo;", 16#201D}, {"ldquo;", 16#201C}],
+    named_entity(Str, Names).
+
+named_entity(_, []) -> error;
+named_entity(Str, [{Name, Cp} | Rest]) ->
+    case lists:prefix(Name, Str) of
+        true -> {ok, Cp, lists:nthtail(length(Name), Str)};
+        false -> named_entity(Str, Rest)
+    end.

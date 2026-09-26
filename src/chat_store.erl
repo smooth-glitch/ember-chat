@@ -8,7 +8,7 @@
 -module(chat_store).
 -export([init/0, save_message/5, save_message/6, load_history/1, dm_key/2,
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
-         delete_message/2, edit_message/3, post_status/4, list_statuses/0, view_status/2, delete_status/2, set_ttl/2, get_ttl/1, set_group_meta/3, get_group_meta/1, get_expires/1, sweep/0,
+         delete_message/2, edit_message/3, post_status/4, dm_partners/1, list_statuses/0, view_status/2, delete_status/2, set_ttl/2, get_ttl/1, set_group_meta/3, get_group_meta/1, get_expires/1, sweep/0,
          save_link_preview/2, find_or_create_account/3,
          set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1, set_last_seen/1, get_last_seen/1]).
 
@@ -133,6 +133,34 @@ migrate_if_needed(Name, CurrentFields) ->
 dm_key(A, B) ->
     [First, Second] = lists:sort([A, B]),
     "dm:" ++ First ++ "|" ++ Second.
+
+%% Everyone User has a live (non-expired) 1:1 conversation with, most recent
+%% first, as [{Partner, LastMessageTs}]. Lets a client rebuild its chat list
+%% after a relaunch. Scans the message table (fine at this project's scale;
+%% a per-user index would be the next step for a large deployment).
+dm_partners(User) ->
+    Now = erlang:system_time(millisecond),
+    Rows = mnesia:dirty_select(chat_message,
+        [{#chat_message{conv_key = '$1', ts = '$2', expires = '$3', _ = '_'}, [], [['$1', '$2', '$3']]}]),
+    ByPartner = lists:foldl(
+        fun([Key, Ts, Exp], Acc) ->
+            Expired = is_integer(Exp) andalso Exp =< Now,
+            case {Expired, dm_partner(Key, User)} of
+                {false, Partner} when Partner =/= none ->
+                    T = case Ts of I when is_integer(I) -> I; _ -> 0 end,
+                    maps:update_with(Partner, fun(Old) -> max(Old, T) end, T, Acc);
+                _ -> Acc
+            end
+        end, #{}, Rows),
+    lists:reverse(lists:keysort(2, maps:to_list(ByPartner))).
+
+dm_partner("dm:" ++ Rest, User) ->
+    case string:split(Rest, "|") of
+        [User, B] -> B;
+        [A, User] -> A;
+        _ -> none
+    end;
+dm_partner(_, _) -> none.
 
 %% Kind is 'chat' | 'group_message' (system/presence notices are transient
 %% and deliberately not persisted -- they'd bloat storage fast in a busy

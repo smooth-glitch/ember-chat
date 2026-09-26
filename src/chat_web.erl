@@ -871,7 +871,7 @@ ws_username_loop(Socket, Buf) ->
 handle_username_data(Socket, Buf) ->
     case ws_decode(Buf) of
         {ok, 1, Payload, Rest} ->
-            case string:trim(binary_to_list(Payload)) of
+            case trim_ws(binary_to_list(Payload)) of
                 "" ->
                     ws_send_json(Socket, "error", "Username cannot be empty"),
                     handle_username_data(Socket, Rest);
@@ -1067,7 +1067,7 @@ ws_loop(Socket, Name, Buf) ->
 handle_ws_data(Socket, Name, Buf) ->
     case ws_decode(Buf) of
         {ok, 1, Payload, Rest} ->
-            case string:trim(binary_to_list(Payload)) of
+            case trim_ws(binary_to_list(Payload)) of
                 "/quit" ->
                     chat_room:unregister_user(Name),
                     gen_tcp:send(Socket, ws_encode(8, <<>>)),
@@ -1274,7 +1274,7 @@ handle_line(_Socket, Name, "/delete " ++ Rest) ->
             ok
     end;
 handle_line(Socket, Name, "/creategroup " ++ Rest) ->
-    case string:trim(Rest) of
+    case trim_ws(Rest) of
         "" ->
             ws_send_json(Socket, "error", "Usage: /creategroup <name>");
         GroupName when length(GroupName) > ?MAX_GROUP_NAME_LEN ->
@@ -1301,6 +1301,12 @@ handle_line(Socket, Name, "/addmember " ++ Rest) ->
         _ ->
             ws_send_json(Socket, "error", "Usage: /addmember <group> <username>")
     end;
+%% /dms -- who this user has 1:1 conversations with (for rebuilding the chat list).
+handle_line(Socket, Name, "/dms") ->
+    Items = [json_obj2([{"user", {str, U}}, {"ts", {raw, integer_to_list(T)}}])
+             || {U, T} <- chat_store:dm_partners(Name)],
+    ws_send(Socket, json_obj2([{"type", {str, "dms"}},
+                               {"list", {raw, "[" ++ string:join(Items, ",") ++ "]"}}]));
 %% ---- status updates ----
 %% /poststatus text <bgIndex> <text...>  |  /poststatus image <url>
 handle_line(Socket, Name, "/poststatus " ++ Rest) ->
@@ -1308,7 +1314,7 @@ handle_line(Socket, Name, "/poststatus " ++ Rest) ->
         ["text", R2] ->
             case string:split(R2, " ") of
                 [BgStr, Text0] ->
-                    Text = string:trim(Text0),
+                    Text = trim_ws(Text0),
                     Bg = case catch list_to_integer(BgStr) of B when is_integer(B), B >= 0, B < 16 -> B; _ -> 0 end,
                     if
                         Text =:= "" -> ok;
@@ -1320,7 +1326,7 @@ handle_line(Socket, Name, "/poststatus " ++ Rest) ->
                 _ -> ok
             end;
         ["image", Url0] ->
-            Url = string:trim(Url0),
+            Url = trim_ws(Url0),
             case Url of
                 "" -> ok;
                 _ ->
@@ -1353,7 +1359,7 @@ handle_line(_Socket, Name, "/deletestatus " ++ IdStr) ->
     end);
 %% /groupinfo <group> -- current description + icon, to the asker only.
 handle_line(Socket, Name, "/groupinfo " ++ GroupName0) ->
-    GroupName = string:trim(GroupName0),
+    GroupName = trim_ws(GroupName0),
     case chat_groups:list_members(GroupName) of
         {ok, Members} ->
             case lists:member(Name, Members) of
@@ -1427,7 +1433,7 @@ handle_line(Socket, Name, "/removemember " ++ Rest) ->
             ws_send_json(Socket, "error", "Usage: /removemember <group> <user>")
     end;
 handle_line(Socket, Name, "/leavegroup " ++ Rest) ->
-    GroupName = string:trim(Rest),
+    GroupName = trim_ws(Rest),
     case chat_groups:leave_group(GroupName, Name) of
         ok -> ws_send_json(Socket, "left_group", GroupName);
         {error, not_found} -> ws_send_json(Socket, "error", "No such group: " ++ GroupName);
@@ -1572,7 +1578,24 @@ unmask_bytes([B | Rest], Keys, I) ->
 %% ---- tiny JSON encoding (no external deps) -----------------------------
 
 ws_send(Socket, Json) ->
-    gen_tcp:send(Socket, ws_encode(1, list_to_binary(Json))).
+    gen_tcp:send(Socket, ws_encode(1, valid_utf8(list_to_binary(Json)))).
+
+%% Incoming text is held as a list of UTF-8 *bytes*, so string:trim/1 -- which
+%% treats each element as a code point -- strips a trailing 0x85 as if it were
+%% U+0085 (NEL). That byte ends many emoji (🌅 ✅ 📅 🍅) and letters (ą), so
+%% "Sunrise 🌅" was cut to a truncated, invalid UTF-8 sequence. Trim only the
+%% ASCII whitespace that can never be part of a multi-byte character.
+trim_ws(Str) -> string:trim(Str, both, " \t\r\n").
+
+%% Browsers and iOS close the socket on a text frame that isn't valid UTF-8,
+%% so a single damaged message used to crash every connection that received it
+%% (and every later history load). Replace anything malformed with U+FFFD.
+valid_utf8(Bin) ->
+    case unicode:characters_to_binary(Bin, utf8, utf8) of
+        Good when is_binary(Good) -> Good;
+        {error, Good, [_Bad | Rest]} -> <<Good/binary, 16#FFFD/utf8, (valid_utf8(list_to_binary(Rest)))/binary>>;
+        {incomplete, Good, _} -> <<Good/binary, 16#FFFD/utf8>>
+    end.
 
 ws_send_json(Socket, Type, Text) ->
     ws_send(Socket, json_obj([{"type", Type}, {"text", lists:flatten(Text)}])).
@@ -1639,7 +1662,7 @@ ws_send_group_meta(Socket, GroupName, Desc, Icon) ->
 set_group_meta_cmd(Socket, Name, Rest, Field) ->
     case string:split(Rest, " ") of
         [GroupName, Value0] ->
-            Value = string:trim(Value0),
+            Value = trim_ws(Value0),
             case chat_groups:owner(GroupName) of
                 {ok, Name} when length(Value) =< 200; Field =:= icon ->
                     Key = "group:" ++ GroupName,
