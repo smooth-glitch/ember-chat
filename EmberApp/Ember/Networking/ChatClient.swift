@@ -468,6 +468,63 @@ final class ChatClient {
             .sorted { $0.message.id > $1.message.id }
     }
 
+    // MARK: - Status updates
+
+    private(set) var statuses: [StatusPost] = []
+    private(set) var viewedStatusIDs: Set<Int> = Set((UserDefaults.standard.array(forKey: "ember.viewedStatus") as? [Int]) ?? [])
+
+    var myStatuses: [StatusPost] { statuses.filter { $0.user == myName } }
+
+    /// Other people's live posts grouped by author, most recently active first.
+    /// Blocked users are left out.
+    var statusGroups: [(user: String, posts: [StatusPost])] {
+        Dictionary(grouping: statuses.filter { $0.user != myName && !blockedUsers.contains($0.user) }, by: \.user)
+            .map { (user: $0.key, posts: $0.value.sorted { $0.id < $1.id }) }
+            .sorted { ($0.posts.last?.id ?? 0) > ($1.posts.last?.id ?? 0) }
+    }
+
+    var unviewedStatusCount: Int {
+        statusGroups.reduce(0) { total, group in total + group.posts.filter { !viewedStatusIDs.contains($0.id) }.count }
+    }
+
+    func statuses(by user: String) -> [StatusPost] {
+        statuses.filter { $0.user == user }.sorted { $0.id < $1.id }
+    }
+
+    func postTextStatus(_ text: String, bg: Int) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        send(raw: "/poststatus text \(bg) \(t)")
+    }
+
+    func postImageStatus(fileURL: URL) async {
+        guard let url = await upload(fileURL: fileURL, filename: "status.jpg", mimeType: "image/jpeg") else { return }
+        send(raw: "/poststatus image \(url)")
+    }
+
+    /// Marks it seen locally and (for other people's posts) tells the author.
+    func viewStatus(_ post: StatusPost) {
+        guard !viewedStatusIDs.contains(post.id) || post.user != myName else { return }
+        if post.user != myName {
+            viewedStatusIDs.insert(post.id)
+            UserDefaults.standard.set(Array(viewedStatusIDs), forKey: "ember.viewedStatus")
+            send(raw: "/viewstatus \(post.id)")
+        }
+    }
+
+    func deleteStatus(_ id: Int) { send(raw: "/deletestatus \(id)") }
+
+    private static func statusPost(_ raw: [String: Any]) -> StatusPost? {
+        guard let id = raw["id"] as? Int, let user = raw["user"] as? String,
+              let kind = (raw["kind"] as? String).flatMap(StatusPost.Kind.init(rawValue:)),
+              let content = raw["content"] as? String,
+              let ts = (raw["ts"] as? NSNumber)?.doubleValue, let exp = (raw["exp"] as? NSNumber)?.doubleValue
+        else { return nil }
+        return StatusPost(id: id, user: user, kind: kind, content: content, bg: (raw["bg"] as? Int) ?? 0,
+                          time: Date(timeIntervalSince1970: ts / 1000), expires: Date(timeIntervalSince1970: exp / 1000),
+                          views: raw["views"] as? [String])
+    }
+
     private var systemCounter = -2_000_000
     private var pruneTask: Task<Void, Never>?
 
@@ -482,6 +539,7 @@ final class ChatClient {
     /// from the screen at the right moment.
     func pruneExpired() {
         let now = Date()
+        if statuses.contains(where: { $0.expires <= now }) { statuses.removeAll { $0.expires <= now } }
         for (key, var conv) in conversations {
             let before = conv.messages.count
             let gone = conv.messages.filter { ($0.expires ?? .distantFuture) <= now }
@@ -602,6 +660,7 @@ final class ChatClient {
         case "welcome":
             state = .connected
             startPruning()
+            send(raw: "/statuses")
             myName = (json["name"] as? String) ?? myName
             send(raw: "/list")
             send(raw: "/groups")
@@ -658,6 +717,25 @@ final class ChatClient {
             } else {
                 conversations[key]?.members = members
             }
+
+        case "statuses":
+            let list = (json["list"] as? [[String: Any]]) ?? []
+            statuses = list.compactMap(Self.statusPost)
+
+        case "status_new":
+            guard let raw = json["item"] as? [String: Any], let post = Self.statusPost(raw),
+                  !statuses.contains(where: { $0.id == post.id }) else { return }
+            statuses.append(post)
+
+        case "status_deleted":
+            if let id = json["id"] as? Int { statuses.removeAll { $0.id == id } }
+
+        case "status_view":
+            guard let id = json["id"] as? Int, let viewer = json["viewer"] as? String,
+                  let i = statuses.firstIndex(where: { $0.id == id }) else { return }
+            var views = statuses[i].views ?? []
+            if !views.contains(viewer) { views.append(viewer) }
+            statuses[i].views = views
 
         case "disappear":
             guard let scope = json["scope"] as? String, let target = json["target"] as? String,

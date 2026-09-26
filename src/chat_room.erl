@@ -15,7 +15,7 @@
 -export([get_pid/1, typing/1, typing_dm/2, mark_read/2]).
 -export([react_global/3, react_dm/4]).
 -export([delete_global/2, delete_dm/3, edit_global/3, edit_dm/4]).
--export([broadcast_profile/1]).
+-export([broadcast_profile/1, notify_everyone/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(state, {users = #{} :: #{string() => pid()},
@@ -61,6 +61,9 @@ mark_read(Reader, Other) -> gen_server:cast(?MODULE, {mark_read, Reader, Other})
 
 react_global(MessageId, User, Emoji) -> gen_server:cast(?MODULE, {react_global, MessageId, User, Emoji}).
 react_dm(MessageId, User, Emoji, Other) -> gen_server:cast(?MODULE, {react_dm, MessageId, User, Emoji, Other}).
+
+%% Sends Msg to every connected user's socket process.
+notify_everyone(Msg) -> gen_server:cast(?MODULE, {notify_everyone, Msg}).
 
 delete_global(MessageId, User) -> gen_server:cast(?MODULE, {delete_global, MessageId, User}).
 delete_dm(MessageId, User, Other) -> gen_server:cast(?MODULE, {delete_dm, MessageId, User, Other}).
@@ -213,6 +216,9 @@ handle_cast({edit_dm, MessageId, User, Other, Text}, State = #state{users = User
                 end, [User, Other]);
         _ -> ok
     end,
+    {noreply, State};
+handle_cast({notify_everyone, Msg}, State = #state{users = Users}) ->
+    notify_all(Users, Msg),
     {noreply, State};
 handle_cast({broadcast_profile, User}, State = #state{users = Users}) ->
     {Avatar, Status} = chat_store:get_profile(User),

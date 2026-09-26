@@ -12,6 +12,7 @@
 		2B3432E33B4DB65ECA520790 /* ConversationListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */; };
 		2C6535D07C9C6ADC081B0A2E /* MediaPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91239B8E4D984D6A1270D579 /* MediaPickerView.swift */; };
 		3DA9CC19D0E28D64A7AF30A7 /* AnimatedGIFView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */; };
+		5A7C0DE1A2B34C5D6E7F8092 /* StatusViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A7C0DE1A2B34C5D6E7F8091 /* StatusViews.swift */; };
 		430B24BE2501731045C4C2B4 /* ChatClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C067E529726F2296D95ED855 /* ChatClient.swift */; };
 		5C298666F3EFA10D9314F6DF /* Conversation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 078D1D989A90D0AF7F3DCB28 /* Conversation.swift */; };
 		6F87C303E5C39EC217443828 /* CryptoBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D9D88149B5D5173C75F73A1 /* CryptoBox.swift */; };
@@ -33,6 +34,7 @@
 		1466EEC6F88D1C678F1BA0E3 /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationListView.swift; sourceTree = "<group>"; };
 		27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedGIFView.swift; sourceTree = "<group>"; };
+		5A7C0DE1A2B34C5D6E7F8091 /* StatusViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusViews.swift; sourceTree = "<group>"; };
 		2AAACC9D7B2264AAB11427A1 /* MediaResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaResult.swift; sourceTree = "<group>"; };
 		2BC26FA7428BD717E3F3B69E /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		3D9D88149B5D5173C75F73A1 /* CryptoBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CryptoBox.swift; sourceTree = "<group>"; };
@@ -111,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				27C1B24BBEC1CA4FA27B7A87 /* AnimatedGIFView.swift */,
+				5A7C0DE1A2B34C5D6E7F8091 /* StatusViews.swift */,
 				004C9A3B3C508CF0F19CF8B0 /* AudioMessagePlayer.swift */,
 				1466EEC6F88D1C678F1BA0E3 /* ChatView.swift */,
 				21D7BE641E9F7B9DA7A557AF /* ConversationListView.swift */,
@@ -193,6 +196,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				3DA9CC19D0E28D64A7AF30A7 /* AnimatedGIFView.swift in Sources */,
+				5A7C0DE1A2B34C5D6E7F8092 /* StatusViews.swift in Sources */,
 				8B4D0E1042AB305214A3B64A /* AudioMessagePlayer.swift in Sources */,
 				8ADB53183546F5EE36762DCD /* AudioRecorder.swift in Sources */,
 				430B24BE2501731045C4C2B4 /* ChatClient.swift in Sources */,

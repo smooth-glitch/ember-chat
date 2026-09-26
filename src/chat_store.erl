@@ -8,11 +8,12 @@
 -module(chat_store).
 -export([init/0, save_message/5, save_message/6, load_history/1, dm_key/2,
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
-         delete_message/2, edit_message/3, set_ttl/2, get_ttl/1, set_group_meta/3, get_group_meta/1, get_expires/1, sweep/0,
+         delete_message/2, edit_message/3, post_status/4, list_statuses/0, view_status/2, delete_status/2, set_ttl/2, get_ttl/1, set_group_meta/3, get_group_meta/1, get_expires/1, sweep/0,
          save_link_preview/2, find_or_create_account/3,
          set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1, set_last_seen/1, get_last_seen/1]).
 
 -record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false, edited = false, expires = undefined}).
+-record(status_post, {id, user, kind, content, bg = 0, ts, expires, viewers = []}).
 -record(conv_setting, {conv_key, ttl = 0, description = [], icon = []}).
 -record(chat_group, {name, owner, members}).
 %% Key is {Provider, Sub} (e.g. {google, "10769150350006150715"}) -- Sub is
@@ -47,7 +48,9 @@ init() ->
                  [{disc_copies, [node()]}]),
     ensure_table(conv_setting, record_info(fields, conv_setting),
                  [{disc_copies, [node()]}]),
-    ok = mnesia:wait_for_tables([chat_message, chat_group, chat_account, user_profile, conv_setting], 10000),
+    ensure_table(status_post, record_info(fields, status_post),
+                 [{disc_copies, [node()]}]),
+    ok = mnesia:wait_for_tables([chat_message, chat_group, chat_account, user_profile, conv_setting, status_post], 10000),
     migrate_preview_shape(),
     ok.
 
@@ -204,7 +207,54 @@ sweep() ->
         [{#chat_message{expires = '$1', _ = '_'},
           [{is_integer, '$1'}, {'=<', '$1', Now}], ['$_']}]),
     lists:foreach(fun(R) -> mnesia:dirty_delete(chat_message, R#chat_message.id) end, Expired),
-    length(Expired).
+    ExpiredStatuses = mnesia:dirty_select(status_post,
+        [{#status_post{expires = '$1', _ = '_'}, [{'=<', '$1', Now}], ['$_']}]),
+    lists:foreach(fun(R) -> mnesia:dirty_delete(status_post, R#status_post.id) end, ExpiredStatuses),
+    length(Expired) + length(ExpiredStatuses).
+
+%% ---- status updates ("stories"): visible to everyone for 24 hours ----
+-define(STATUS_TTL_MS, 24 * 60 * 60 * 1000).
+
+%% Kind is "text" (Content = the text, Bg = palette index) or "image"
+%% (Content = an uploaded image URL). Returns the new post's id.
+post_status(User, Kind, Content, Bg) ->
+    Id = erlang:unique_integer([monotonic, positive]),
+    Now = erlang:system_time(millisecond),
+    ok = mnesia:dirty_write(#status_post{id = Id, user = User, kind = Kind, content = Content,
+                                          bg = Bg, ts = Now, expires = Now + ?STATUS_TTL_MS}),
+    {ok, status_item(hd(mnesia:dirty_read(status_post, Id)))}.
+
+%% Live posts, oldest first: [{Id, User, Kind, Content, Bg, Ts, Exp, Viewers}].
+list_statuses() ->
+    Now = erlang:system_time(millisecond),
+    All = mnesia:dirty_select(status_post,
+        [{#status_post{expires = '$1', _ = '_'}, [{'>', '$1', Now}], ['$_']}]),
+    [status_item(R) || R <- lists:keysort(#status_post.id, All)].
+
+status_item(#status_post{id = I, user = U, kind = K, content = C, bg = B, ts = T, expires = E, viewers = V}) ->
+    {I, U, K, C, B, T, E, V}.
+
+%% Records that Viewer saw the post (once; the owner's own views don't
+%% count). Returns {ok, Owner, NewlyRecorded} so the owner can be told.
+view_status(Id, Viewer) ->
+    case mnesia:dirty_read(status_post, Id) of
+        [P = #status_post{user = Owner, viewers = V}] when Owner =/= Viewer ->
+            case lists:member(Viewer, V) of
+                true -> {ok, Owner, false};
+                false ->
+                    ok = mnesia:dirty_write(P#status_post{viewers = V ++ [Viewer]}),
+                    {ok, Owner, true}
+            end;
+        [#status_post{user = Owner}] -> {ok, Owner, false};
+        [] -> {error, not_found}
+    end.
+
+delete_status(Id, User) ->
+    case mnesia:dirty_read(status_post, Id) of
+        [#status_post{user = User}] -> mnesia:dirty_delete(status_post, Id), ok;
+        [_] -> {error, forbidden};
+        [] -> {error, not_found}
+    end.
 
 %% Replaces the text of the sender's own, not-yet-deleted message. Same
 %% ownership rule as delete_message/2, enforced here. Any cached link

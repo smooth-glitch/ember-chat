@@ -8,17 +8,23 @@ import PhotosUI
 /// app doesn't have destinations for.
 struct ConversationListView: View {
     @Bindable var client: ChatClient
+    // EMBER_TAB is a test hook (like EMBER_OPEN) to launch straight onto a tab.
+    @State private var tab = ProcessInfo.processInfo.environment["EMBER_TAB"] ?? "chats"
 
     var body: some View {
-        TabView {
-            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill") {
+        TabView(selection: $tab) {
+            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: "chats") {
                 ChatsTab(client: client)
             }
             .badge(client.totalUnread)
-            Tab("People", systemImage: "person.2.fill") {
+            Tab("Updates", systemImage: "circle.dashed", value: "updates") {
+                UpdatesTab(client: client)
+            }
+            .badge(client.unviewedStatusCount)
+            Tab("People", systemImage: "person.2.fill", value: "people") {
                 PeopleTab(client: client)
             }
-            Tab("You", systemImage: "person.crop.circle.fill") {
+            Tab("You", systemImage: "person.crop.circle.fill", value: "you") {
                 ProfileTab(client: client)
             }
         }

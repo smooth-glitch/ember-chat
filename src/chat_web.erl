@@ -935,6 +935,16 @@ ws_loop(Socket, Name, Buf) ->
         {group_system, GroupName, Text} ->
             ws_send_group_system(Socket, GroupName, Text),
             ws_loop(Socket, Name, Buf);
+        {status_new, Item} ->
+            ws_send(Socket, status_json("status_new", Item, Name)),
+            ws_loop(Socket, Name, Buf);
+        {status_deleted, StatusId} ->
+            ws_send(Socket, json_obj2([{"type", {str, "status_deleted"}}, {"id", {raw, integer_to_list(StatusId)}}])),
+            ws_loop(Socket, Name, Buf);
+        {status_view, StatusId, Viewer} ->
+            ws_send(Socket, json_obj2([{"type", {str, "status_view"}}, {"id", {raw, integer_to_list(StatusId)}},
+                                       {"viewer", {str, Viewer}}])),
+            ws_loop(Socket, Name, Buf);
         {group_meta, GroupName, Desc, Icon} ->
             ws_send_group_meta(Socket, GroupName, Desc, Icon),
             ws_loop(Socket, Name, Buf);
@@ -1291,6 +1301,56 @@ handle_line(Socket, Name, "/addmember " ++ Rest) ->
         _ ->
             ws_send_json(Socket, "error", "Usage: /addmember <group> <username>")
     end;
+%% ---- status updates ----
+%% /poststatus text <bgIndex> <text...>  |  /poststatus image <url>
+handle_line(Socket, Name, "/poststatus " ++ Rest) ->
+    case string:split(Rest, " ") of
+        ["text", R2] ->
+            case string:split(R2, " ") of
+                [BgStr, Text0] ->
+                    Text = string:trim(Text0),
+                    Bg = case catch list_to_integer(BgStr) of B when is_integer(B), B >= 0, B < 16 -> B; _ -> 0 end,
+                    if
+                        Text =:= "" -> ok;
+                        length(Text) > 700 -> ws_send_json(Socket, "error", "Status too long (max 700 chars)");
+                        true ->
+                            {ok, Item} = chat_store:post_status(Name, "text", Text, Bg),
+                            chat_room:notify_everyone({status_new, Item})
+                    end;
+                _ -> ok
+            end;
+        ["image", Url0] ->
+            Url = string:trim(Url0),
+            case Url of
+                "" -> ok;
+                _ ->
+                    {ok, Item} = chat_store:post_status(Name, "image", Url, 0),
+                    chat_room:notify_everyone({status_new, Item})
+            end;
+        _ -> ok
+    end;
+handle_line(Socket, Name, "/statuses") ->
+    Items = [status_json_str(I, Name) || I <- chat_store:list_statuses()],
+    ws_send(Socket, json_obj2([{"type", {str, "statuses"}},
+                               {"list", {raw, "[" ++ string:join(Items, ",") ++ "]"}}]));
+handle_line(_Socket, Name, "/viewstatus " ++ IdStr) ->
+    with_int(string:trim(IdStr), fun(Id) ->
+        case chat_store:view_status(Id, Name) of
+            {ok, Owner, true} ->
+                case chat_room:get_pid(Owner) of
+                    {ok, Pid} -> Pid ! {status_view, Id, Name};
+                    error -> ok
+                end;
+            _ -> ok
+        end
+    end);
+handle_line(_Socket, Name, "/deletestatus " ++ IdStr) ->
+    with_int(string:trim(IdStr), fun(Id) ->
+        case chat_store:delete_status(Id, Name) of
+            ok -> chat_room:notify_everyone({status_deleted, Id});
+            _ -> ok
+        end
+    end);
 %% /groupinfo <group> -- current description + icon, to the asker only.
 handle_line(Socket, Name, "/groupinfo " ++ GroupName0) ->
     GroupName = string:trim(GroupName0),
@@ -1436,7 +1496,8 @@ handle_line(_Socket, _Name, Text) when
     Text =:= "/setavatar"; Text =:= "/setstatus"; Text =:= "/getprofile";
     Text =:= "/react"; Text =:= "/delete"; Text =:= "/edit"; Text =:= "/creategroup";
     Text =:= "/addmember"; Text =:= "/removemember"; Text =:= "/disappear"; Text =:= "/groupinfo";
-    Text =:= "/setgroupdesc"; Text =:= "/setgroupicon"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
+    Text =:= "/setgroupdesc"; Text =:= "/setgroupicon";
+    Text =:= "/poststatus"; Text =:= "/viewstatus"; Text =:= "/deletestatus"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
     Text =:= "/replygroup" ->
     ok;
 handle_line(_Socket, Name, Text) ->
@@ -1555,6 +1616,20 @@ with_secs(Socket, SecsStr, Fun) ->
         Secs when is_integer(Secs), Secs >= 0, Secs =< 7776000 -> Fun(Secs);
         _ -> ws_send_json(Socket, "error", "Usage: /disappear <dm|group> <target> <seconds 0-7776000>")
     end.
+
+%% Viewers are only included for the post's own author.
+status_json_str({Id, User, Kind, Content, Bg, Ts, Exp, Viewers}, Me) ->
+    Base = [{"id", {raw, integer_to_list(Id)}}, {"user", {str, User}}, {"kind", {str, Kind}},
+            {"content", {str, Content}}, {"bg", {raw, integer_to_list(Bg)}},
+            {"ts", {raw, integer_to_list(Ts)}}, {"exp", {raw, integer_to_list(Exp)}}],
+    Fields = case User =:= Me of
+        true -> Base ++ [{"views", {raw, json_string_array(Viewers)}}];
+        false -> Base
+    end,
+    json_obj2(Fields).
+
+status_json(Type, Item, Me) ->
+    json_obj2([{"type", {str, Type}}, {"item", {raw, status_json_str(Item, Me)}}]).
 
 ws_send_group_meta(Socket, GroupName, Desc, Icon) ->
     ws_send(Socket, json_obj2([

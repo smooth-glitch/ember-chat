@@ -82,3 +82,20 @@ struct ChatMessage: Identifiable, Equatable {
         return [".webm", ".ogg", ".m4a"].contains { path.hasSuffix($0) }
     }
 }
+
+/// One status update ("story"): visible to everyone for 24 hours.
+struct StatusPost: Identifiable, Equatable {
+    enum Kind: String { case text, image }
+
+    var id: Int
+    var user: String
+    var kind: Kind
+    /// The text itself, or an uploaded image URL.
+    var content: String
+    /// Index into StatusPalette.gradients (text posts only).
+    var bg: Int
+    var time: Date
+    var expires: Date
+    /// Who has viewed it. Only the server sends this, and only to the author.
+    var views: [String]?
+}
