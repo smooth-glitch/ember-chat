@@ -3,6 +3,7 @@ import UIKit
 import PhotosUI
 import Photos
 import CoreLocation
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @Bindable var client: ChatClient
@@ -31,6 +32,7 @@ struct ChatView: View {
     @State private var showDeleteConfirm = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
+    @State private var showFileImporter = false
     @State private var locationFetcher = LocationFetcher()
     @State private var sharingLocation = false
     @State private var searchActive = false
@@ -233,6 +235,10 @@ struct ChatView: View {
             }
             .ignoresSafeArea()
         }
+        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.pdf]) { result in
+            guard case .success(let url) = result else { return }
+            Task { await uploadDocument(url) }
+        }
         .photosPicker(isPresented: $showPhotoPicker, selection: $photoItem, matching: .images)
         .confirmationDialog("Delete \(deletableSelected.count) message\(deletableSelected.count == 1 ? "" : "s") for everyone?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete for Everyone", role: .destructive) {
@@ -291,7 +297,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(message.out ? client.myName : message.from)
                     .font(.system(size: 12.5, weight: .bold)).foregroundStyle(Theme.accent)
-                Text(message.isImageMessage ? "Photo" : message.text)
+                Text(message.isImageMessage ? "Photo" : message.isDocumentMessage ? "📄 \(message.documentName)" : message.text)
                     .font(.system(size: 12.5)).foregroundStyle(Theme.muted).lineLimit(1)
             }
             Spacer()
@@ -449,6 +455,7 @@ struct ChatView: View {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
                         Button { showCamera = true } label: { Label("Camera", systemImage: "camera") }
                     }
+                    Button { showFileImporter = true } label: { Label("Document (PDF)", systemImage: "doc.fill") }
                     Button { Task { await shareLocation() } } label: { Label("Location", systemImage: "location.fill") }
                 } label: {
                     Image(systemName: sharingLocation ? "location.fill" : "plus")
@@ -537,6 +544,18 @@ struct ChatView: View {
 
     private func startRecording() {
         recorder.requestPermissionAndStart()
+    }
+
+    private func uploadDocument(_ url: URL) async {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        // Copy out of the security-scoped location before the async upload.
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
+        guard (try? FileManager.default.copyItem(at: url, to: tmp)) != nil else {
+            client.uploadError = "Couldn't read that file."
+            return
+        }
+        await client.uploadAndSend(fileURL: tmp, filename: url.lastPathComponent, mimeType: "application/pdf", in: convKey)
     }
 
     private func uploadPhotoData(_ data: Data) async {

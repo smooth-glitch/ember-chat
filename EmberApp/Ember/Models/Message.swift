@@ -55,6 +55,21 @@ struct ChatMessage: Identifiable, Equatable {
         return [".gif", ".png", ".jpg", ".jpeg", ".webp"].contains { path.hasSuffix($0) }
     }
 
+    /// A shared PDF: a bare uploaded-file URL ending in `.pdf`, with the
+    /// original filename carried in a `?name=` query so the card can show it.
+    var isDocumentMessage: Bool {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return url.path.lowercased().hasSuffix(".pdf")
+    }
+
+    var documentName: String {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "name" })?.value,
+              !name.isEmpty
+        else { return "Document.pdf" }
+        return name
+    }
+
     /// Same AUDIO_RE the web client uses to render a bare voice-note URL as
     /// an `<audio>` player instead of text.
     var isAudioMessage: Bool {

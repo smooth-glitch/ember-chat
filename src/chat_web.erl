@@ -11,7 +11,7 @@
 -define(MAX_UPLOAD_SIZE, 8 * 1024 * 1024).
 -define(DRAIN_CEILING, 32 * 1024 * 1024).
 -define(ALLOWED_UPLOAD_TYPES, ["image/png", "image/jpeg", "image/gif", "image/webp",
-                                "audio/webm", "audio/ogg", "audio/mp4"]).
+                                "audio/webm", "audio/ogg", "audio/mp4", "application/pdf"]).
 
 start(Socket) ->
     Pid = spawn(fun() -> wait_for_socket(Socket) end),
@@ -402,7 +402,7 @@ store_upload(Socket, ContentType, Data) ->
     NormalizedType = string:trim(hd(string:split(Trimmed, ";"))),
     case lists:member(NormalizedType, ?ALLOWED_UPLOAD_TYPES) of
         false ->
-            respond_json_error(Socket, 415, "Only images or voice notes are allowed");
+            respond_json_error(Socket, 415, "Only images, voice notes or PDFs are allowed");
         true ->
             case byte_size(Data) of
                 0 ->
@@ -452,6 +452,8 @@ matches_signature("audio/ogg", _) -> false;
 %% "ftyp" -- the size varies per file, so only the type tag itself is fixed.
 matches_signature("audio/mp4", <<_Size:32, "ftyp", _/binary>>) -> true;
 matches_signature("audio/mp4", _) -> false;
+matches_signature("application/pdf", <<"%PDF-", _/binary>>) -> true;
+matches_signature("application/pdf", _) -> false;
 matches_signature(_, _) -> false.
 
 extension_for("image/png") -> ".png";
@@ -460,7 +462,8 @@ extension_for("image/gif") -> ".gif";
 extension_for("image/webp") -> ".webp";
 extension_for("audio/webm") -> ".webm";
 extension_for("audio/ogg") -> ".ogg";
-extension_for("audio/mp4") -> ".m4a".
+extension_for("audio/mp4") -> ".m4a";
+extension_for("application/pdf") -> ".pdf".
 
 random_hex(NumBytes) ->
     Bytes = crypto:strong_rand_bytes(NumBytes),
@@ -547,6 +550,7 @@ content_type_for_filename(Name) ->
         ".webm" -> "audio/webm";
         ".ogg" -> "audio/ogg";
         ".m4a" -> "audio/mp4";
+        ".pdf" -> "application/pdf";
         ".json" -> "application/json";
         ".js" -> "application/javascript";
         _ -> "application/octet-stream"

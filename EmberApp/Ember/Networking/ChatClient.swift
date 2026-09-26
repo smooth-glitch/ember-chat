@@ -332,7 +332,12 @@ final class ChatClient {
     }
 
     func uploadAndSend(fileURL: URL, filename: String, mimeType: String, in convKey: String) async {
-        guard let url = await upload(fileURL: fileURL, filename: filename, mimeType: mimeType) else { return }
+        guard var url = await upload(fileURL: fileURL, filename: filename, mimeType: mimeType) else { return }
+        if mimeType == "application/pdf" {
+            // Uploaded files get random server names; keep the original one
+            // in the query so recipients see what the document is called.
+            url += "?name=" + (filename.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Document.pdf")
+        }
         sendMessage(in: convKey, text: url)
     }
 

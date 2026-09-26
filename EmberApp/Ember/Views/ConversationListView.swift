@@ -178,6 +178,7 @@ private struct ChatsTab: View {
         if last.deleted { return "This message was deleted" }
         if last.isImageMessage { return "📷 Photo" }
         if last.isAudioMessage { return "🎤 Voice message" }
+        if last.isDocumentMessage { return "📄 \(last.documentName)" }
         return last.text
     }
 
@@ -542,7 +543,7 @@ private struct StarredMessagesView: View {
                             Text(client.conversations[item.convKey]?.title ?? "")
                                 .font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
-                        Text(item.message.isImageMessage ? "📷 Photo" : item.message.isAudioMessage ? "🎤 Voice message" : item.message.text)
+                        Text(item.message.isImageMessage ? "📷 Photo" : item.message.isAudioMessage ? "🎤 Voice message" : item.message.isDocumentMessage ? "📄 \(item.message.documentName)" : item.message.text)
                             .font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(4)
                     }
                     .padding(.vertical, 3)

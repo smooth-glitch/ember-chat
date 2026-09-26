@@ -170,6 +170,25 @@ struct MessageBubbleView: View {
                 .clipShape(.rect(cornerRadius: 14))
                 .contentShape(.rect(cornerRadius: 14))
                 .onTapGesture { onOpenImage(url) }
+            } else if message.isDocumentMessage, let url = URL(string: message.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                Link(destination: url) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "doc.richtext.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(message.out ? .white : Theme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(message.documentName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(message.out ? .white : Theme.text)
+                                .lineLimit(2)
+                            Text("PDF · Tap to open")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(message.out ? .white.opacity(0.75) : Theme.muted)
+                        }
+                    }
+                    .frame(maxWidth: 230, alignment: .leading)
+                }
+                .buttonStyle(.plain)
             } else if message.isAudioMessage, let url = URL(string: message.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 AudioMessagePlayer(url: url, tint: message.out ? .white : Theme.accent)
             } else {
