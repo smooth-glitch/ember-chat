@@ -197,9 +197,3 @@ Built and hardened by driving the app with scripted clients and screenshots. A f
 - Uploads are validated by **magic bytes**, not the declared content type; files are served with `nosniff`.
 - The link-preview fetcher refuses private/loopback addresses (SSRF guard) and caps size and time.
 - Sign-in never touches a password: Google/Apple confirm identity and the app only receives a name/email.
-
-## Credits
-
-Screenshots use fictional demo accounts, placeholder photos from [Lorem Picsum](https://picsum.photos)
-(Unsplash licence) and avatars from [pravatar.cc](https://pravatar.cc); none are stored in this repository.
-GIF and sticker search is powered by Giphy.
