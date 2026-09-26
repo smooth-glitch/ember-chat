@@ -28,6 +28,27 @@ final class ChatClient {
         "global": Conversation(id: "global", kind: .global, title: "Everyone")
     ]
     private(set) var conversationOrder: [String] = ["global"]
+    /// convKey -> messages received while that conversation wasn't the one
+    /// on screen. Cleared by `setActive` when the chat is opened.
+    private(set) var unreadCounts: [String: Int] = [:]
+    /// Muted chats keep receiving messages but don't count toward the badge.
+    /// Local-only, persisted like pins.
+    private(set) var mutedKeys: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ember.muted") ?? [])
+    /// Starred messages (ids are unique across all conversations). Local-only.
+    private(set) var starredIDs: Set<Int> = Set((UserDefaults.standard.array(forKey: "ember.starred") as? [Int]) ?? [])
+    /// Archived chats leave the main list (and the badge) until unarchived.
+    private(set) var archivedKeys: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ember.archived") ?? [])
+    /// Unsent composer text per conversation, so leaving a chat and coming
+    /// back doesn't lose what you were typing.
+    var drafts: [String: String] = [:]
+    /// The conversation currently visible in ChatView, if any.
+    private(set) var activeConvKey: String?
+    /// Chats pinned to the top of the list. Local-only (the server has no
+    /// notion of pins), persisted so it survives relaunch.
+    /// Users you've blocked. Their messages are dropped on arrival (the
+    /// server still delivers them -- it has no block list). Local-only.
+    private(set) var blockedUsers: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ember.blocked") ?? [])
+    private(set) var pinnedKeys: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "ember.pinned") ?? [])
     private(set) var onlineUsers: [String] = []
     private(set) var myName: String = ""
     var myAvatarURL: String?
@@ -43,13 +64,10 @@ final class ChatClient {
     private(set) var gifResults: [MediaResult] = []
     private(set) var stickerResults: [MediaResult] = []
 
-    /// `wss://` to the Render deploy -- an always-on host, unlike the
-    /// project's ngrok tunnel (wss://crumpet-troubling-surely.ngrok-free.dev/)
-    /// which only answers while the Mac it runs on is awake and the tunnel
-    /// process is alive. Works from both the simulator and a real device
-    /// (unlike `ws://localhost:8080/`, which only resolves for simulators,
-    /// since they share the Mac's network stack).
-    var serverURL = URL(string: "wss://ember-chat-tofm.onrender.com/")!
+    /// Local dev server (see chat_app:start_web_only/1). `localhost` only
+    /// resolves from the simulator, which shares the Mac's network stack; a
+    /// real device needs the Mac's LAN IP or a tunnel instead.
+    var serverURL = URL(string: "ws://localhost:8080/")!
 
     private var task: URLSessionWebSocketTask?
     private var receiveLoopTask: Task<Void, Never>?
@@ -137,6 +155,11 @@ final class ChatClient {
         send(raw: "/addmember \(name) \(user)")
     }
 
+    /// Owner-only (the server enforces it): kicks `user` out of the group.
+    func removeMember(_ user: String, fromGroup name: String) {
+        send(raw: "/removemember \(name) \(user)")
+    }
+
     func leaveGroup(_ name: String) {
         send(raw: "/leavegroup \(name)")
     }
@@ -172,7 +195,7 @@ final class ChatClient {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, var conv = conversations[convKey] else { return }
         let placeholderID = -(messagesByID.count + 1) - 1_000_000
-        let msg = ChatMessage(id: placeholderID, text: trimmed, from: myName, out: true, replyTo: replyTo, reactions: [], kind: .chat, status: conv.kind == .dm ? .sent : nil)
+        let msg = ChatMessage(id: placeholderID, text: trimmed, from: myName, out: true, replyTo: replyTo, reactions: [], kind: .chat, status: conv.kind == .dm ? .sent : nil, time: Date())
         conv.messages.append(msg)
         conversations[convKey] = conv
         pendingSend = (convKey, conv.messages.count - 1)
@@ -213,6 +236,22 @@ final class ChatClient {
         case .global: send(raw: "/delete global \(messageID)")
         case .dm: send(raw: "/delete dm \(conv.title) \(messageID)")
         case .group: send(raw: "/delete group \(conv.title) \(messageID)")
+        }
+    }
+
+    /// Only your own, non-deleted text messages can be edited (the server
+    /// enforces that too). The "edited"/"dm_edited"/"group_edited" push
+    /// below is what actually updates the bubble, same as delete.
+    func editMessage(in convKey: String, messageID: Int, newText: String) {
+        guard let conv = conversations[convKey] else { return }
+        let trimmed = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        switch conv.kind {
+        case .global: send(raw: "/edit global \(messageID) \(trimmed)")
+        case .dm:
+            let wireText = dmKeys[conv.title].flatMap { CryptoBox.encrypt(trimmed, key: $0) } ?? trimmed
+            send(raw: "/edit dm \(conv.title) \(messageID) \(wireText)")
+        case .group: send(raw: "/edit group \(conv.title) \(messageID) \(trimmed)")
         }
     }
 
@@ -349,8 +388,84 @@ final class ChatClient {
         }
     }
 
+    /// Server timestamps are epoch milliseconds; 0/absent means unknown.
+    private static func date(_ raw: Any?) -> Date? {
+        guard let ms = (raw as? NSNumber)?.doubleValue, ms > 0 else { return nil }
+        return Date(timeIntervalSince1970: ms / 1000)
+    }
+
+    var totalUnread: Int {
+        unreadCounts.reduce(0) { $0 + (mutedKeys.contains($1.key) || archivedKeys.contains($1.key) ? 0 : $1.value) }
+    }
+
+    func toggleMute(_ key: String) {
+        if mutedKeys.contains(key) { mutedKeys.remove(key) } else { mutedKeys.insert(key) }
+        UserDefaults.standard.set(Array(mutedKeys), forKey: "ember.muted")
+    }
+
+    /// Pinned chats first, otherwise the existing order.
+    var displayOrder: [String] {
+        let active = conversationOrder.filter { !archivedKeys.contains($0) }
+        return active.filter(pinnedKeys.contains) + active.filter { !pinnedKeys.contains($0) }
+    }
+
+    var archivedOrder: [String] { conversationOrder.filter(archivedKeys.contains) }
+
+    func toggleArchive(_ key: String) {
+        if archivedKeys.contains(key) { archivedKeys.remove(key) } else { archivedKeys.insert(key) }
+        UserDefaults.standard.set(Array(archivedKeys), forKey: "ember.archived")
+    }
+
+    /// WhatsApp's "Mark as unread": shows a badge again without new messages.
+    func markUnread(_ key: String) {
+        unreadCounts[key] = max(unreadCounts[key] ?? 0, 1)
+    }
+
+    func toggleBlock(_ user: String) {
+        guard user != myName else { return }
+        if blockedUsers.contains(user) { blockedUsers.remove(user) } else { blockedUsers.insert(user) }
+        UserDefaults.standard.set(Array(blockedUsers), forKey: "ember.blocked")
+    }
+
+    private static func preview(_ raw: [String: Any]) -> ChatMessage.LinkPreview? {
+        guard let url = raw["previewUrl"] as? String, !url.isEmpty else { return nil }
+        return ChatMessage.LinkPreview(
+            url: url,
+            title: (raw["previewTitle"] as? String) ?? "",
+            description: (raw["previewDescription"] as? String) ?? "",
+            image: (raw["previewImage"] as? String) ?? ""
+        )
+    }
+
+    func toggleStar(_ id: Int) {
+        if starredIDs.contains(id) { starredIDs.remove(id) } else { starredIDs.insert(id) }
+        UserDefaults.standard.set(Array(starredIDs), forKey: "ember.starred")
+    }
+
+    /// Starred messages this session has loaded, newest first, with the chat
+    /// each one lives in.
+    var starredMessages: [(convKey: String, message: ChatMessage)] {
+        starredIDs.compactMap { messagesByID[$0] }
+            .filter { !$0.message.deleted }
+            .sorted { $0.message.id > $1.message.id }
+    }
+
+    func setActive(_ key: String?) {
+        activeConvKey = key
+        if let key { unreadCounts[key] = nil }
+    }
+
+    func togglePin(_ key: String) {
+        if pinnedKeys.contains(key) { pinnedKeys.remove(key) } else { pinnedKeys.insert(key) }
+        UserDefaults.standard.set(Array(pinnedKeys), forKey: "ember.pinned")
+    }
+
     private func appendMessage(_ msg: ChatMessage, to convKey: String) {
         guard var conv = conversations[convKey] else { return }
+        if !msg.out, msg.kind == .chat, blockedUsers.contains(msg.from) { return }
+        if !msg.out, msg.kind == .chat, convKey != activeConvKey {
+            unreadCounts[convKey, default: 0] += 1
+        }
         conv.messages.append(msg)
         conversations[convKey] = conv
         messagesByID[msg.id] = (convKey, msg)
@@ -395,7 +510,7 @@ final class ChatClient {
         case "chat":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String else { return }
             typingUsers["global"]?.remove(from)
-            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat), to: "global")
+            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: "global")
 
         case "private":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String else { return }
@@ -407,7 +522,7 @@ final class ChatClient {
             typingUsers[key]?.remove(from)
             ensureDMKey(for: from) // so a reply we send back can encrypt, and the UI can show the lock
             let decoded = decryptIfNeeded(text, from: from)
-            appendMessage(ChatMessage(id: id, text: decoded, from: from, out: false, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat), to: key)
+            appendMessage(ChatMessage(id: id, text: decoded, from: from, out: false, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: key)
 
         case "group_message":
             guard let id = json["id"] as? Int, let from = json["from"] as? String, let text = json["text"] as? String, let group = json["group"] as? String else { return }
@@ -417,7 +532,7 @@ final class ChatClient {
                 conversationOrder.append(key)
             }
             typingUsers[key]?.remove(from)
-            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat), to: key)
+            appendMessage(ChatMessage(id: id, text: text, from: from, out: from == myName, replyTo: json["replyTo"] as? Int, reactions: parseReactions(json["reactions"]), kind: .chat, time: Self.date(json["ts"])), to: key)
 
         case "group_system":
             guard let group = json["group"] as? String, let text = json["text"] as? String else { return }
@@ -435,15 +550,27 @@ final class ChatClient {
                 conversations[key]?.members = members
             }
 
+        case "group_members":
+            // Live membership/owner change pushed to every member.
+            guard let name = json["name"] as? String else { return }
+            let key = Conversation.key(group: name)
+            guard conversations[key] != nil else { return }
+            conversations[key]?.members = (json["members"] as? [String]) ?? []
+            conversations[key]?.owner = (json["owner"] as? String) ?? ""
+
         case "groups":
             guard let list = json["list"] as? [[String: Any]] else { return }
             for g in list {
                 guard let name = g["name"] as? String else { continue }
                 let key = Conversation.key(group: name)
                 let members = (g["members"] as? [String]) ?? []
+                let owner = (g["owner"] as? String) ?? ""
                 if conversations[key] == nil {
-                    conversations[key] = Conversation(id: key, kind: .group, title: name, members: members)
+                    conversations[key] = Conversation(id: key, kind: .group, title: name, members: members, owner: owner)
                     conversationOrder.append(key)
+                } else {
+                    conversations[key]?.members = members
+                    conversations[key]?.owner = owner
                 }
             }
 
@@ -472,7 +599,8 @@ final class ChatClient {
             let historical: [ChatMessage] = list.compactMap { item in
                 guard let id = item["id"] as? Int, let from = item["from"] as? String, let text = item["text"] as? String else { return nil }
                 let decoded = dmPartner.map { decryptIfNeeded(text, from: $0) } ?? text
-                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat, deleted: (item["deleted"] as? Bool) ?? false)
+                let msg = ChatMessage(id: id, text: decoded, from: from, out: from == myName, replyTo: item["replyTo"] as? Int, reactions: parseReactions(item["reactions"]), kind: .chat, deleted: (item["deleted"] as? Bool) ?? false, time: Self.date(item["ts"]), edited: (item["edited"] as? Bool) ?? false, preview: Self.preview(item))
+                if blockedUsers.contains(from) && from != myName { return nil }
                 messagesByID[id] = (key, msg)
                 return msg
             }
@@ -517,6 +645,22 @@ final class ChatClient {
             conv.messages[index].deleted = true
             conv.messages[index].text = ""
             conv.messages[index].reactions = []
+            conversations[key] = conv
+            messagesByID[messageID]?.message = conv.messages[index]
+
+        case "edited", "dm_edited", "group_edited":
+            guard let messageID = json["messageId"] as? Int, let text = json["text"] as? String,
+                  let (key, _) = messagesByID[messageID], var conv = conversations[key],
+                  let index = conv.messages.firstIndex(where: { $0.id == messageID }) else { return }
+            conv.messages[index].text = conv.kind == .dm ? decryptIfNeeded(text, from: conv.title) : text
+            conv.messages[index].edited = true
+            conversations[key] = conv
+            messagesByID[messageID]?.message = conv.messages[index]
+
+        case "link_preview", "dm_link_preview", "group_link_preview":
+            guard let messageID = json["messageId"] as? Int, let (key, _) = messagesByID[messageID], var conv = conversations[key],
+                  let index = conv.messages.firstIndex(where: { $0.id == messageID }) else { return }
+            conv.messages[index].preview = Self.preview(json)
             conversations[key] = conv
             messagesByID[messageID]?.message = conv.messages[index]
 

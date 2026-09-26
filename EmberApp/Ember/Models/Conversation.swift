@@ -14,6 +14,9 @@ struct Conversation: Identifiable, Equatable {
     var kind: Kind
     var title: String
     var members: [String] = []
+    /// Groups only: the one member who can remove others. Empty until the
+    /// server says (older servers never send it).
+    var owner: String = ""
     var messages: [ChatMessage] = []
     var historyLoaded = false
 

@@ -14,6 +14,7 @@ struct ConversationListView: View {
             Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill") {
                 ChatsTab(client: client)
             }
+            .badge(client.totalUnread)
             Tab("People", systemImage: "person.2.fill") {
                 PeopleTab(client: client)
             }
@@ -27,53 +28,162 @@ struct ConversationListView: View {
 
 private struct ChatsTab: View {
     @Bindable var client: ChatClient
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showNewGroup = false
     @State private var search = ""
+    /// iPad / large-width only: which chat the split view's detail pane shows.
+    @State private var selection: String?
+    @State private var path: [String] = []
 
     private var filteredKeys: [String] {
-        guard !search.isEmpty else { return client.conversationOrder }
-        return client.conversationOrder.filter {
+        guard !search.isEmpty else { return client.displayOrder }
+        return client.displayOrder.filter {
             client.conversations[$0]?.title.localizedCaseInsensitiveContains(search) ?? false
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            Group {
-                if client.conversationOrder.isEmpty {
-                    ContentUnavailableView("No Chats Yet", systemImage: "bubble.left.and.bubble.right", description: Text("Start a conversation from the People tab."))
-                } else if filteredKeys.isEmpty {
-                    ContentUnavailableView.search(text: search)
-                } else {
-                    List {
-                        ForEach(filteredKeys, id: \.self) { key in
-                            if let conv = client.conversations[key] {
-                                NavigationLink(value: key) { row(for: conv) }
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                }
-            }
-            .background(Theme.bg)
-            .navigationTitle("Chats")
-            .navigationBarTitleDisplayMode(.large)
-            .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
-            .navigationDestination(for: String.self) { key in
-                ChatView(client: client, convKey: key)
-            }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showNewGroup = true } label: { Image(systemName: "square.and.pencil") }
-                }
-            }
-            .sheet(isPresented: $showNewGroup) { NewGroupView(client: client) }
+    private var archivedFiltered: [String] {
+        guard !search.isEmpty else { return client.archivedOrder }
+        return client.archivedOrder.filter {
+            client.conversations[$0]?.title.localizedCaseInsensitiveContains(search) ?? false
         }
     }
 
+    @ViewBuilder
+    private func listRows(split: Bool) -> some View {
+        ForEach(filteredKeys, id: \.self) { key in chatRow(key, split: split) }
+        if !archivedFiltered.isEmpty {
+            Section {
+                ForEach(archivedFiltered, id: \.self) { key in chatRow(key, split: split) }
+            } header: {
+                Label("Archived", systemImage: "archivebox.fill")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chatRow(_ key: String, split: Bool) -> some View {
+        if let conv = client.conversations[key] {
+            let pinned = client.pinnedKeys.contains(key)
+            let muted = client.mutedKeys.contains(key)
+            let archived = client.archivedKeys.contains(key)
+            Group {
+                if split {
+                    row(for: conv).tag(key)
+                } else {
+                    NavigationLink(value: key) { row(for: conv) }
+                }
+            }
+            .swipeActions(edge: .leading) {
+                Button { withAnimation { client.togglePin(key) } } label: {
+                    Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash.fill" : "pin.fill")
+                }
+                .tint(Theme.accent)
+                Button { client.markUnread(key) } label: {
+                    Label("Unread", systemImage: "message.badge.fill")
+                }
+                .tint(.blue)
+            }
+            .swipeActions(edge: .trailing) {
+                Button { withAnimation { client.toggleArchive(key) } } label: {
+                    Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up.fill" : "archivebox.fill")
+                }
+                .tint(.gray)
+                Button { withAnimation { client.toggleMute(key) } } label: {
+                    Label(muted ? "Unmute" : "Mute", systemImage: muted ? "bell.fill" : "bell.slash.fill")
+                }
+                .tint(.indigo)
+            }
+            .contextMenu {
+                Button { withAnimation { client.togglePin(key) } } label: {
+                    Label(pinned ? "Unpin" : "Pin", systemImage: pinned ? "pin.slash" : "pin")
+                }
+                Button { withAnimation { client.toggleMute(key) } } label: {
+                    Label(muted ? "Unmute" : "Mute", systemImage: muted ? "bell" : "bell.slash")
+                }
+                Button { client.markUnread(key) } label: {
+                    Label("Mark as Unread", systemImage: "message.badge")
+                }
+                Button { withAnimation { client.toggleArchive(key) } } label: {
+                    Label(archived ? "Unarchive" : "Archive", systemImage: archived ? "tray.and.arrow.up" : "archivebox")
+                }
+            }
+        }
+    }
+
+    var body: some View {
+        if sizeClass == .regular {
+            NavigationSplitView {
+                chatList(split: true)
+            } detail: {
+                if let selection {
+                    ChatView(client: client, convKey: selection).id(selection)
+                } else {
+                    ContentUnavailableView("Select a Chat", systemImage: "bubble.left.and.bubble.right", description: Text("Choose a conversation from the sidebar."))
+                }
+            }
+        } else {
+            NavigationStack(path: $path) {
+                chatList(split: false)
+                    .navigationDestination(for: String.self) { key in
+                        ChatView(client: client, convKey: key)
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chatList(split: Bool) -> some View {
+        Group {
+            if client.conversationOrder.isEmpty {
+                ContentUnavailableView("No Chats Yet", systemImage: "bubble.left.and.bubble.right", description: Text("Start a conversation from the People tab."))
+            } else if filteredKeys.isEmpty {
+                ContentUnavailableView.search(text: search)
+            } else {
+                // Two separate Lists on purpose: a `selection:` binding on
+                // the iPhone stack list competes with NavigationLink taps.
+                if split {
+                    List(selection: $selection) { listRows(split: true) }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                } else {
+                    List { listRows(split: false) }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                }
+            }
+        }
+        .background(Theme.bg)
+        // Test hook (same idea as EMBER_AUTOJOIN): open a chat straight away
+        // so it can be screenshotted without tapping. Inert on a normal launch.
+        .task {
+            if let key = ProcessInfo.processInfo.environment["EMBER_OPEN"], client.conversations[key] != nil {
+                if split { selection = key } else { path = [key] }
+            }
+        }
+        .navigationTitle("Chats")
+        .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search chats")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showNewGroup = true } label: { Image(systemName: "square.and.pencil") }
+            }
+        }
+        .sheet(isPresented: $showNewGroup) { NewGroupView(client: client) }
+    }
+
+    private func preview(for conv: Conversation) -> String {
+        if let draft = client.drafts[conv.id], !draft.isEmpty { return "Draft: \(draft)" }
+        guard let last = conv.messages.last else { return " " }
+        if last.deleted { return "This message was deleted" }
+        if last.isImageMessage { return "📷 Photo" }
+        if last.isAudioMessage { return "🎤 Voice message" }
+        return last.text
+    }
+
     private func row(for conv: Conversation) -> some View {
-        HStack(spacing: 12) {
+        let unread = client.unreadCounts[conv.id] ?? 0
+        return HStack(spacing: 12) {
             switch conv.kind {
             case .group:
                 Circle().fill(Theme.accent).frame(width: 44, height: 44)
@@ -86,10 +196,25 @@ private struct ChatsTab: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(conv.title).font(.system(size: 15.5, weight: .semibold)).foregroundStyle(Theme.text)
-                Text(conv.messages.last?.text ?? " ")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Theme.muted)
+                Text(preview(for: conv))
+                    .font(.system(size: 13, weight: unread > 0 ? .medium : .regular))
+                    .foregroundStyle(unread > 0 ? Theme.text : Theme.muted)
                     .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if client.mutedKeys.contains(conv.id) {
+                Image(systemName: "bell.slash.fill").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            if client.pinnedKeys.contains(conv.id) && unread == 0 {
+                Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(Theme.muted)
+            }
+            if unread > 0 {
+                Text(unread > 99 ? "99+" : "\(unread)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .frame(minWidth: 22)
+                    .background(client.mutedKeys.contains(conv.id) ? Theme.muted : Theme.accent, in: .capsule)
             }
         }
         .padding(.vertical, 4)
@@ -138,6 +263,8 @@ private struct ProfileTab: View {
     @State private var showStatusEditor = false
     @State private var showPrivacyInfo = false
     @State private var uploadingPhoto = false
+    @AppStorage("ember.appearance") private var appearance = "system"
+    @AppStorage("ember.haptics") private var hapticsOn = true
 
     var body: some View {
         NavigationStack {
@@ -177,6 +304,40 @@ private struct ProfileTab: View {
                             Spacer()
                             Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.muted)
                         }
+                    }
+                }
+
+                Section {
+                    NavigationLink {
+                        StarredMessagesView(client: client)
+                    } label: {
+                        Label("Starred Messages", systemImage: "star.fill")
+                    }
+                }
+
+                if !client.blockedUsers.isEmpty {
+                    Section("Blocked") {
+                        ForEach(client.blockedUsers.sorted(), id: \.self) { user in
+                            HStack {
+                                Label(user, systemImage: "hand.raised.fill").foregroundStyle(Theme.text)
+                                Spacer()
+                                Button("Unblock") { client.toggleBlock(user) }
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                        }
+                    }
+                }
+
+                Section("Appearance") {
+                    Picker(selection: $appearance) {
+                        Text("System").tag("system")
+                        Text("Light").tag("light")
+                        Text("Dark").tag("dark")
+                    } label: {
+                        Label("Theme", systemImage: "circle.lefthalf.filled")
+                    }
+                    Toggle(isOn: $hapticsOn) {
+                        Label("Haptics", systemImage: "iphone.radiowaves.left.and.right")
                     }
                 }
 
@@ -359,5 +520,42 @@ struct NewGroupView: View {
                 }
             }
         }
+    }
+}
+
+/// Every message you've starred that this session has loaded.
+private struct StarredMessagesView: View {
+    @Bindable var client: ChatClient
+
+    var body: some View {
+        Group {
+            let items = client.starredMessages
+            if items.isEmpty {
+                ContentUnavailableView("No Starred Messages", systemImage: "star", description: Text("Long-press a message and choose Star to keep it here."))
+            } else {
+                List(items, id: \.message.id) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(item.message.out ? "You" : item.message.from)
+                                .font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.accent)
+                            Spacer()
+                            Text(client.conversations[item.convKey]?.title ?? "")
+                                .font(.system(size: 12)).foregroundStyle(Theme.muted)
+                        }
+                        Text(item.message.isImageMessage ? "📷 Photo" : item.message.isAudioMessage ? "🎤 Voice message" : item.message.text)
+                            .font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(4)
+                    }
+                    .padding(.vertical, 3)
+                    .swipeActions {
+                        Button(role: .destructive) { client.toggleStar(item.message.id) } label: {
+                            Label("Unstar", systemImage: "star.slash")
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+        .navigationTitle("Starred")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

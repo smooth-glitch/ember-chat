@@ -17,12 +17,25 @@ struct ChatMessage: Identifiable, Equatable {
     /// nil for anything that isn't your own outgoing DM.
     var status: DeliveryStatus? = nil
     var deleted: Bool = false
+    /// When the server received it; nil for system lines and any message
+    /// the server didn't stamp.
+    var time: Date? = nil
+    var edited: Bool = false
+    var preview: LinkPreview? = nil
 
     enum DeliveryStatus { case sent, delivered, read }
 
     enum Kind: Equatable {
         case chat
         case system
+    }
+
+    /// Server-fetched Open Graph card for the first URL in a text message.
+    struct LinkPreview: Equatable {
+        var url: String
+        var title: String
+        var description: String
+        var image: String
     }
 
     struct Reaction: Equatable {

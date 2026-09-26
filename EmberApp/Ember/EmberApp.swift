@@ -13,6 +13,15 @@ struct EmberApp: App {
 
 struct RootView: View {
     @Bindable var client: ChatClient
+    @AppStorage("ember.appearance") private var appearance = "system"
+
+    private var scheme: ColorScheme? {
+        switch appearance {
+        case "light": .light
+        case "dark": .dark
+        default: nil
+        }
+    }
 
     var body: some View {
         Group {
@@ -23,6 +32,7 @@ struct RootView: View {
             }
         }
         .animation(.default, value: client.state == .connected)
+        .preferredColorScheme(scheme)
         // Standard env-var-driven test hook, same pattern UI tests use --
         // lets a screenshot/verification pass skip manually typing a
         // username, with zero effect on a real launch from the Home

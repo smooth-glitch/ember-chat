@@ -10,6 +10,11 @@ struct MessageActionOverlay: View {
     let onReact: (String) -> Void
     let onReply: () -> Void
     let onCopy: () -> Void
+    var onEdit: (() -> Void)? = nil
+    var onForward: (() -> Void)? = nil
+    var onStar: (() -> Void)? = nil
+    var isStarred = false
+    var onSelect: (() -> Void)? = nil
     let onDelete: () -> Void
     let onDismiss: () -> Void
 
@@ -42,12 +47,40 @@ struct MessageActionOverlay: View {
                     actionRow(icon: "arrowshape.turn.up.left.fill", label: "Reply", action: onReply)
                     Divider().padding(.leading, 44)
                     actionRow(icon: "doc.on.doc.fill", label: "Copy Text", action: onCopy)
+                    if let onForward {
+                        Divider().padding(.leading, 44)
+                        actionRow(icon: "arrowshape.turn.up.right.fill", label: "Forward", action: onForward)
+                    }
+                    if let onStar {
+                        Divider().padding(.leading, 44)
+                        actionRow(icon: isStarred ? "star.slash.fill" : "star.fill", label: isStarred ? "Unstar" : "Star", action: onStar)
+                    }
+                    if let onSelect {
+                        Divider().padding(.leading, 44)
+                        actionRow(icon: "checkmark.circle.fill", label: "Select", action: onSelect)
+                    }
+                    Divider().padding(.leading, 44)
+                    ShareLink(item: message.text) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "square.and.arrow.up.fill").frame(width: 20)
+                            Text("Share")
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.text)
+                    if message.out, let onEdit, !message.isImageMessage, !message.isAudioMessage {
+                        Divider().padding(.leading, 44)
+                        actionRow(icon: "pencil", label: "Edit", action: onEdit)
+                    }
                     if message.out {
                         Divider().padding(.leading, 44)
                         actionRow(icon: "trash.fill", label: "Delete for Everyone", action: onDelete, tint: .red)
                     }
                 }
-                .frame(width: 200)
+                .frame(width: 220)
                 .glassEffect(.regular, in: .rect(cornerRadius: 16))
             }
         }

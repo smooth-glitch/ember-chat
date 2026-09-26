@@ -31,8 +31,12 @@
 	<string>1</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Ember needs camera access to take photos to share in chat.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Ember uses your location only when you choose to share it in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ember needs microphone access to record voice notes.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ember saves photos you choose to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Ember needs photo access to attach images to messages.</string>
 	<key>UILaunchScreen</key>

@@ -13,9 +13,16 @@ struct MessageBubbleView: View {
     var avatarURL: String?
     let onLongPress: () -> Void
     let onSwipeReply: () -> Void
+    var onOpenImage: (URL) -> Void = { _ in }
+    var onTapQuote: (Int) -> Void = { _ in }
+    var onTapAvatar: (String) -> Void = { _ in }
+    /// Briefly true after jumping here from a reply quote.
+    var highlighted = false
+    var starred = false
 
     @State private var dragOffset: CGFloat = 0
     @State private var swipeArmed = false
+    @AppStorage("ember.haptics") private var hapticsOn = true
 
     private let triggerDistance: CGFloat = 64
     private let maxDrag: CGFloat = 84
@@ -54,6 +61,7 @@ struct MessageBubbleView: View {
                         }
                     }
                     .frame(width: 28, height: 28)
+                    .onTapGesture { onTapAvatar(message.from) }
                 }
 
                 VStack(alignment: message.out ? .trailing : .leading, spacing: 3) {
@@ -64,6 +72,18 @@ struct MessageBubbleView: View {
                     }
 
                     bubbleContent
+
+                    if (message.time != nil || message.edited || starred) && !message.deleted {
+                        HStack(spacing: 4) {
+                            if starred { Image(systemName: "star.fill").foregroundStyle(.yellow) }
+                            if message.edited { Text("Edited") }
+                            if message.edited && message.time != nil { Text("·") }
+                            if let time = message.time { Text(time, format: .dateTime.hour().minute()) }
+                        }
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Theme.muted)
+                        .padding(.horizontal, 4)
+                    }
 
                     if !message.reactions.isEmpty {
                         reactionPills
@@ -109,6 +129,7 @@ struct MessageBubbleView: View {
                         swipeArmed = false
                     }
             )
+            .sensoryFeedback(trigger: swipeArmed) { _, armed in hapticsOn && armed ? .impact(flexibility: .soft) : nil }
             .onLongPressGesture(minimumDuration: 0.4) {
                 onLongPress()
             }
@@ -147,12 +168,19 @@ struct MessageBubbleView: View {
                 }
                 .frame(width: 200, height: 200)
                 .clipShape(.rect(cornerRadius: 14))
+                .contentShape(.rect(cornerRadius: 14))
+                .onTapGesture { onOpenImage(url) }
             } else if message.isAudioMessage, let url = URL(string: message.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
                 AudioMessagePlayer(url: url, tint: message.out ? .white : Theme.accent)
             } else {
-                Text(message.text)
+                Text(linkified(message.text))
                     .font(.system(size: 15))
                     .foregroundStyle(message.out ? .white : Theme.text)
+
+                if let preview = message.preview, let url = URL(string: preview.url) {
+                    Link(destination: url) { linkCard(preview) }
+                        .buttonStyle(.plain)
+                }
             }
 
             if let status = message.status {
@@ -175,6 +203,64 @@ struct MessageBubbleView: View {
             }
         }
         .clipShape(.rect(cornerRadius: 18))
+        .overlay {
+            if highlighted {
+                RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2.5)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: highlighted)
+    }
+
+    private func linkCard(_ preview: ChatMessage.LinkPreview) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let image = URL(string: preview.image), !preview.image.isEmpty {
+                AsyncImage(url: image) { phase in
+                    if case .success(let img) = phase {
+                        img.resizable().aspectRatio(contentMode: .fill)
+                    } else {
+                        Color.black.opacity(0.06)
+                    }
+                }
+                .frame(width: 240, height: 120)
+                .clipped()
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if !preview.title.isEmpty {
+                    Text(preview.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(message.out ? .white : Theme.text)
+                        .lineLimit(2)
+                }
+                if !preview.description.isEmpty {
+                    Text(preview.description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(message.out ? .white.opacity(0.8) : Theme.muted)
+                        .lineLimit(2)
+                }
+                Text(URL(string: preview.url)?.host() ?? preview.url)
+                    .font(.system(size: 11))
+                    .foregroundStyle(message.out ? .white.opacity(0.65) : Theme.muted)
+                    .lineLimit(1)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(8)
+            .frame(width: 240, alignment: .leading)
+        }
+        .background(message.out ? .white.opacity(0.16) : .black.opacity(0.05), in: .rect(cornerRadius: 10))
+        .clipShape(.rect(cornerRadius: 10))
+    }
+
+    /// Underlines and links any URLs in the text (tapping opens Safari).
+    private func linkified(_ text: String) -> AttributedString {
+        var result = AttributedString(text)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return result }
+        for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let url = match.url, let range = Range(match.range, in: result) else { continue }
+            result[range].link = url
+            result[range].underlineStyle = .single
+            result[range].foregroundColor = message.out ? .white : Theme.accent
+        }
+        return result
     }
 
     @ViewBuilder
@@ -212,6 +298,8 @@ struct MessageBubbleView: View {
         }
         .padding(6)
         .background(message.out ? .white.opacity(0.16) : .black.opacity(0.05), in: .rect(cornerRadius: 8))
+        .contentShape(.rect(cornerRadius: 8))
+        .onTapGesture { onTapQuote(id) }
     }
 
     private var reactionPills: some View {

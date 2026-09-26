@@ -36,27 +36,27 @@ struct AnimatedGIFView: View {
 
     private func loadFrames() async {
         playbackTask?.cancel()
-        frames = []
-        durations = []
         currentFrame = 0
 
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let source = CGImageSourceCreateWithData(data as CFData, nil)
-        else { return }
-
-        let count = CGImageSourceGetCount(source)
-        var decodedFrames: [UIImage] = []
-        var decodedDurations: [Double] = []
-        for i in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) else { continue }
-            decodedFrames.append(UIImage(cgImage: cgImage))
-            decodedDurations.append(Self.frameDuration(source: source, index: i))
+        // Decoding happens off the main actor and is cached per URL: the
+        // old version decoded every full-resolution frame on the main
+        // thread for every GIF in the list, which froze the Everyone chat
+        // (many GIFs) while they all loaded.
+        let decoded: DecodedGIF
+        if let cached = GIFCache.shared.object(forKey: url as NSURL) {
+            decoded = cached.value
+        } else {
+            let url = url
+            guard let result = await Task.detached(priority: .userInitiated, operation: { Self.decode(url: url) }).value,
+                  !Task.isCancelled
+            else { return }
+            GIFCache.shared.setObject(GIFBox(result), forKey: url as NSURL)
+            decoded = result
         }
-        guard !decodedFrames.isEmpty else { return }
-        frames = decodedFrames
-        durations = decodedDurations
+        frames = decoded.frames
+        durations = decoded.durations
 
-        guard decodedFrames.count > 1 else { return } // static image, nothing to animate
+        guard decoded.frames.count > 1 else { return } // static image, nothing to animate
         playbackTask = Task {
             while !Task.isCancelled {
                 let duration = durations[safe: currentFrame] ?? 0.1
@@ -67,7 +67,31 @@ struct AnimatedGIFView: View {
         }
     }
 
-    private static func frameDuration(source: CGImageSource, index: Int) -> Double {
+    private nonisolated static func decode(url: URL) -> DecodedGIF? {
+        guard let data = try? Data(contentsOf: url),
+              let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
+
+        // Displayed at ~200pt, so 400px thumbnails are plenty; capping the
+        // frame count keeps memory bounded for long GIFs.
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: 400,
+        ]
+        let count = min(CGImageSourceGetCount(source), 60)
+        var frames: [UIImage] = []
+        var durations: [Double] = []
+        for i in 0..<count {
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, i, options as CFDictionary) else { continue }
+            frames.append(UIImage(cgImage: cg))
+            durations.append(frameDuration(source: source, index: i))
+        }
+        return frames.isEmpty ? nil : DecodedGIF(frames: frames, durations: durations)
+    }
+
+    private nonisolated static func frameDuration(source: CGImageSource, index: Int) -> Double {
         guard
             let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
             let gifProperties = properties[kCGImagePropertyGIFDictionary] as? [CFString: Any]
@@ -79,6 +103,24 @@ struct AnimatedGIFView: View {
         // rather than spinning as fast as the CPU allows.
         return max(unclamped ?? clamped ?? 0.1, 0.02)
     }
+}
+
+struct DecodedGIF: @unchecked Sendable {
+    let frames: [UIImage]
+    let durations: [Double]
+}
+
+final class GIFBox {
+    let value: DecodedGIF
+    init(_ value: DecodedGIF) { self.value = value }
+}
+
+enum GIFCache {
+    nonisolated(unsafe) static let shared: NSCache<NSURL, GIFBox> = {
+        let c = NSCache<NSURL, GIFBox>()
+        c.countLimit = 30
+        return c
+    }()
 }
 
 private extension Array {

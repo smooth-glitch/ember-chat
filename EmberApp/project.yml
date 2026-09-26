@@ -19,7 +19,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleDisplayName: Ember
+        NSLocationWhenInUseUsageDescription: Ember uses your location only when you choose to share it in a chat.
         NSMicrophoneUsageDescription: Ember needs microphone access to record voice notes.
+        NSPhotoLibraryAddUsageDescription: Ember saves photos you choose to your library.
         NSPhotoLibraryUsageDescription: Ember needs photo access to attach images to messages.
         NSCameraUsageDescription: Ember needs camera access to take photos to share in chat.
         CFBundleURLTypes:
