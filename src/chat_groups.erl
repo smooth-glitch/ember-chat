@@ -17,8 +17,8 @@
 -behaviour(gen_server).
 
 -export([start_link/0]).
--export([create_group/2, add_member/3, leave_group/2, list_groups_for/1,
-         list_members/1, group_message/3, group_message/4, typing/2, react/4, delete/3]).
+-export([create_group/2, add_member/3, leave_group/2, list_groups_for/1, remove_member/3, owner/1,
+         list_members/1, group_message/3, group_message/4, typing/2, react/4, delete/3, edit/4]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -record(group, {owner :: string(), members :: [string()]}).
@@ -39,6 +39,13 @@ add_member(GroupName, Requester, NewMember) ->
 leave_group(GroupName, Username) ->
     gen_server:call(?MODULE, {leave, GroupName, Username}).
 
+%% Only the group's owner may remove someone else.
+remove_member(GroupName, Requester, Target) ->
+    gen_server:call(?MODULE, {remove, GroupName, Requester, Target}).
+
+owner(GroupName) ->
+    gen_server:call(?MODULE, {owner, GroupName}).
+
 list_groups_for(Username) ->
     gen_server:call(?MODULE, {list_for, Username}).
 
@@ -54,6 +61,7 @@ group_message(GroupName, From, Text, ReplyTo) ->
 typing(GroupName, From) -> gen_server:cast(?MODULE, {typing, GroupName, From}).
 react(GroupName, MessageId, User, Emoji) -> gen_server:cast(?MODULE, {react, GroupName, MessageId, User, Emoji}).
 delete(GroupName, MessageId, User) -> gen_server:cast(?MODULE, {delete, GroupName, MessageId, User}).
+edit(GroupName, MessageId, User, Text) -> gen_server:cast(?MODULE, {edit, GroupName, MessageId, User, Text}).
 
 init([]) ->
     Groups = maps:from_list(
@@ -92,6 +100,7 @@ handle_call({add_member, GroupName, Requester, NewMember}, _From, State = #state
                             NewMemberPid ! {added_to_group, GroupName, NewMembers, Requester},
                             SystemText = io_lib:format("~s added ~s to the group", [Requester, NewMember]),
                             notify_members(Members, [], {group_system, GroupName, SystemText}),
+                            notify_members(NewMembers, [], {group_members, GroupName, NewMembers, Group#group.owner}),
                             {reply, {ok, NewMembers}, State#state{groups = NewGroups}}
                     end
             end
@@ -113,11 +122,48 @@ handle_call({leave, GroupName, Username}, _From, State = #state{groups = Groups}
                             chat_store:delete_group(GroupName),
                             maps:remove(GroupName, Groups);
                         _ ->
-                            chat_store:save_group(GroupName, Group#group.owner, NewMembers),
-                            maps:put(GroupName, Group#group{members = NewMembers}, Groups)
+                            %% If the owner leaves, ownership passes to the next member.
+                            NewOwner = case Username =:= Group#group.owner of
+                                true -> hd(NewMembers);
+                                false -> Group#group.owner
+                            end,
+                            chat_store:save_group(GroupName, NewOwner, NewMembers),
+                            notify_members(NewMembers, [], {group_members, GroupName, NewMembers, NewOwner}),
+                            maps:put(GroupName, Group#group{owner = NewOwner, members = NewMembers}, Groups)
                     end,
                     {reply, ok, State#state{groups = NewGroups}}
             end
+    end;
+handle_call({remove, GroupName, Requester, Target}, _From, State = #state{groups = Groups}) ->
+    case maps:find(GroupName, Groups) of
+        error ->
+            {reply, {error, not_found}, State};
+        {ok, Group = #group{owner = Owner, members = Members}} ->
+            if
+                Requester =/= Owner -> {reply, {error, not_owner}, State};
+                Target =:= Owner -> {reply, {error, cannot_remove_owner}, State};
+                true ->
+                    case lists:member(Target, Members) of
+                        false ->
+                            {reply, {error, not_member}, State};
+                        true ->
+                            NewMembers = lists:delete(Target, Members),
+                            chat_store:save_group(GroupName, Owner, NewMembers),
+                            SystemText = io_lib:format("~s removed ~s from the group", [Requester, Target]),
+                            notify_members(NewMembers, [], {group_system, GroupName, SystemText}),
+                            notify_members(NewMembers, [], {group_members, GroupName, NewMembers, Owner}),
+                            case chat_room:get_pid(Target) of
+                                {ok, Pid} -> Pid ! {removed_from_group, GroupName};
+                                error -> ok
+                            end,
+                            {reply, ok, State#state{groups = maps:put(GroupName, Group#group{members = NewMembers}, Groups)}}
+                    end
+            end
+    end;
+handle_call({owner, GroupName}, _From, State = #state{groups = Groups}) ->
+    case maps:find(GroupName, Groups) of
+        {ok, #group{owner = Owner}} -> {reply, {ok, Owner}, State};
+        error -> {reply, {error, not_found}, State}
     end;
 handle_call({list_for, Username}, _From, State = #state{groups = Groups}) ->
     Result = maps:fold(
@@ -175,6 +221,17 @@ handle_cast({delete, GroupName, MessageId, User}, State = #state{groups = Groups
         {ok, #group{members = Members}} ->
             case chat_store:delete_message(MessageId, User) of
                 {ok, deleted} -> notify_members(Members, [], {group_deleted, GroupName, MessageId});
+                _ -> ok
+            end;
+        error ->
+            ok
+    end,
+    {noreply, State};
+handle_cast({edit, GroupName, MessageId, User, Text}, State = #state{groups = Groups}) ->
+    case maps:find(GroupName, Groups) of
+        {ok, #group{members = Members}} ->
+            case chat_store:edit_message(MessageId, User, Text) of
+                {ok, edited} -> notify_members(Members, [], {group_edited, GroupName, MessageId, Text});
                 _ -> ok
             end;
         error ->

@@ -931,6 +931,12 @@ ws_loop(Socket, Name, Buf) ->
         {group_system, GroupName, Text} ->
             ws_send_group_system(Socket, GroupName, Text),
             ws_loop(Socket, Name, Buf);
+        {group_members, GroupName, Members, Owner} ->
+            ws_send_group_members(Socket, GroupName, Members, Owner),
+            ws_loop(Socket, Name, Buf);
+        {removed_from_group, GroupName} ->
+            ws_send_json(Socket, "left_group", GroupName),
+            ws_loop(Socket, Name, Buf);
         {added_to_group, GroupName, Members, By} ->
             ws_send_added_to_group(Socket, GroupName, Members, By),
             ws_loop(Socket, Name, Buf);
@@ -963,6 +969,22 @@ ws_loop(Socket, Name, Buf) ->
             AvatarField = case Avatar of undefined -> {"avatar", {raw, "null"}}; A -> {"avatar", {str, A}} end,
             StatusField = case Status of undefined -> {"status", {raw, "null"}}; S -> {"status", {str, S}} end,
             ws_send(Socket, json_obj2([{"type", {str, "profile"}}, {"user", {str, User}}, AvatarField, StatusField])),
+            ws_loop(Socket, Name, Buf);
+        {edited, MessageId, Text} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "edited"}}, {"scope", {str, "global"}},
+                {"messageId", {raw, integer_to_list(MessageId)}}, {"text", {str, Text}}])),
+            ws_loop(Socket, Name, Buf);
+        {dm_edited, MessageId, UserA, UserB, Text} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "dm_edited"}},
+                {"messageId", {raw, integer_to_list(MessageId)}}, {"text", {str, Text}},
+                {"userA", {str, UserA}}, {"userB", {str, UserB}}])),
+            ws_loop(Socket, Name, Buf);
+        {group_edited, GroupName, MessageId, Text} ->
+            ws_send(Socket, json_obj2([
+                {"type", {str, "group_edited"}}, {"group", {str, GroupName}},
+                {"messageId", {raw, integer_to_list(MessageId)}}, {"text", {str, Text}}])),
             ws_loop(Socket, Name, Buf);
         {deleted, MessageId} ->
             ws_send(Socket, json_obj2([
@@ -1184,6 +1206,36 @@ handle_line(_Socket, Name, "/react " ++ Rest) ->
         _ ->
             ok
     end;
+%% /edit <global|dm Other|group Name> <MsgId> <new text> -- new text may
+%% contain spaces, so only the leading tokens are split off.
+handle_line(_Socket, Name, "/edit " ++ Rest) ->
+    case string:split(Rest, " ") of
+        ["global", R2] ->
+            case string:split(R2, " ") of
+                [IdStr, Text] when Text =/= "" -> with_int(IdStr, fun(Id) -> chat_room:edit_global(Id, Name, Text) end);
+                _ -> ok
+            end;
+        ["dm", R2] ->
+            case string:split(R2, " ") of
+                [Other, R3] ->
+                    case string:split(R3, " ") of
+                        [IdStr, Text] when Text =/= "" -> with_int(IdStr, fun(Id) -> chat_room:edit_dm(Id, Name, Other, Text) end);
+                        _ -> ok
+                    end;
+                _ -> ok
+            end;
+        ["group", R2] ->
+            case string:split(R2, " ") of
+                [GroupName, R3] ->
+                    case string:split(R3, " ") of
+                        [IdStr, Text] when Text =/= "" -> with_int(IdStr, fun(Id) -> chat_groups:edit(GroupName, Id, Name, Text) end);
+                        _ -> ok
+                    end;
+                _ -> ok
+            end;
+        _ ->
+            ok
+    end;
 handle_line(_Socket, Name, "/delete " ++ Rest) ->
     case string:split(Rest, " ", all) of
         ["global", MsgIdStr] ->
@@ -1204,7 +1256,9 @@ handle_line(Socket, Name, "/creategroup " ++ Rest) ->
                 io_lib:format("Group name too long (max ~p chars)", [?MAX_GROUP_NAME_LEN]));
         GroupName ->
             case chat_groups:create_group(GroupName, Name) of
-                {ok, Members} -> ws_send_group_created(Socket, GroupName, Members);
+                {ok, Members} ->
+                    ws_send_group_created(Socket, GroupName, Members),
+                    ws_send_group_members(Socket, GroupName, Members, Name);
                 {error, exists} -> ws_send_json(Socket, "error", "A group with that name already exists")
             end
     end;
@@ -1220,6 +1274,19 @@ handle_line(Socket, Name, "/addmember " ++ Rest) ->
             end;
         _ ->
             ws_send_json(Socket, "error", "Usage: /addmember <group> <username>")
+    end;
+handle_line(Socket, Name, "/removemember " ++ Rest) ->
+    case string:split(Rest, " ") of
+        [GroupName, Target] when Target =/= "" ->
+            case chat_groups:remove_member(GroupName, Name, Target) of
+                ok -> ok;
+                {error, not_found} -> ws_send_json(Socket, "error", "No such group: " ++ GroupName);
+                {error, not_owner} -> ws_send_json(Socket, "error", "Only the group owner can remove members");
+                {error, cannot_remove_owner} -> ws_send_json(Socket, "error", "The owner can't be removed");
+                {error, not_member} -> ws_send_json(Socket, "error", Target ++ " isn't in the group")
+            end;
+        _ ->
+            ws_send_json(Socket, "error", "Usage: /removemember <group> <user>")
     end;
 handle_line(Socket, Name, "/leavegroup " ++ Rest) ->
     GroupName = string:trim(Rest),
@@ -1289,8 +1356,8 @@ handle_line(_Socket, _Name, Text) when
     Text =:= "/msg"; Text =:= "/reply"; Text =:= "/replydm"; Text =:= "/history";
     Text =:= "/typing"; Text =:= "/read"; Text =:= "/pubkey"; Text =:= "/getpubkey";
     Text =:= "/setavatar"; Text =:= "/setstatus"; Text =:= "/getprofile";
-    Text =:= "/react"; Text =:= "/delete"; Text =:= "/creategroup";
-    Text =:= "/addmember"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
+    Text =:= "/react"; Text =:= "/delete"; Text =:= "/edit"; Text =:= "/creategroup";
+    Text =:= "/addmember"; Text =:= "/removemember"; Text =:= "/leavegroup"; Text =:= "/groupmsg";
     Text =:= "/replygroup" ->
     ok;
 handle_line(_Socket, Name, Text) ->
@@ -1373,7 +1440,8 @@ ws_send_json(Socket, Type, Text) ->
 ws_send_chat(Socket, Type, Id, From, Text, ReplyTo) ->
     ws_send(Socket, json_obj2([
         {"type", {str, Type}}, {"id", {raw, integer_to_list(Id)}},
-        {"from", {str, From}}, {"text", {str, Text}}, reply_field(ReplyTo)])).
+        {"from", {str, From}}, {"text", {str, Text}},
+        {"ts", {raw, integer_to_list(erlang:system_time(millisecond))}}, reply_field(ReplyTo)])).
 
 ws_send_users(Socket, Users) ->
     ws_send(Socket, json_obj2([{"type", {str, "users"}}, {"list", {raw, json_string_array(Users)}}])).
@@ -1391,7 +1459,15 @@ ws_send_group_message(Socket, GroupName, Id, From, Text, ReplyTo) ->
         {"id", {raw, integer_to_list(Id)}},
         {"from", {str, From}},
         {"text", {str, Text}},
+        {"ts", {raw, integer_to_list(erlang:system_time(millisecond))}},
         reply_field(ReplyTo)])).
+
+ws_send_group_members(Socket, GroupName, Members, Owner) ->
+    ws_send(Socket, json_obj2([
+        {"type", {str, "group_members"}},
+        {"name", {str, GroupName}},
+        {"members", {raw, json_string_array(Members)}},
+        {"owner", {str, Owner}}])).
 
 ws_send_group_system(Socket, GroupName, Text) ->
     ws_send(Socket, json_obj2([
@@ -1407,7 +1483,8 @@ ws_send_added_to_group(Socket, GroupName, Members, By) ->
         {"by", {str, By}}])).
 
 ws_send_groups(Socket, Groups) ->
-    Items = [json_obj2([{"name", {str, Name}}, {"members", {raw, json_string_array(Members)}}])
+    Items = [json_obj2([{"name", {str, Name}}, {"members", {raw, json_string_array(Members)}},
+                        {"owner", {str, case chat_groups:owner(Name) of {ok, O} -> O; _ -> "" end}}])
              || {Name, Members} <- Groups],
     ws_send(Socket, json_obj2([
         {"type", {str, "groups"}},
@@ -1423,9 +1500,10 @@ send_history_payload(Socket, Scope, ExtraFields, Items) ->
         [{"id", {raw, integer_to_list(Id)}}, {"from", {str, From}}, {"text", {str, Text}},
          {"private", {raw, bool_str(Private)}}, {"reactions", {raw, reactions_json(Reactions)}},
          {"deleted", {raw, bool_str(Deleted)}},
+         {"ts", {raw, integer_to_list(Ts)}}, {"edited", {raw, bool_str(Edited)}},
          reply_field(ReplyTo)]
         ++ preview_fields(Preview))
-                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo, Deleted} <- Items],
+                 || {Id, From, Text, Private, Reactions, Preview, ReplyTo, Deleted, Ts, Edited} <- Items],
     ListJson = "[" ++ string:join(ItemsJson, ",") ++ "]",
     Fields = [{"type", {str, "history"}}, {"scope", {str, Scope}}] ++
              [{K, {str, V}} || {K, V} <- ExtraFields] ++

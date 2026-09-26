@@ -13,7 +13,7 @@
          send_private/3, send_private/4, list_users/0]).
 -export([get_pid/1, typing/1, typing_dm/2, mark_read/2]).
 -export([react_global/3, react_dm/4]).
--export([delete_global/2, delete_dm/3]).
+-export([delete_global/2, delete_dm/3, edit_global/3, edit_dm/4]).
 -export([broadcast_profile/1]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
@@ -63,6 +63,8 @@ react_dm(MessageId, User, Emoji, Other) -> gen_server:cast(?MODULE, {react_dm, M
 
 delete_global(MessageId, User) -> gen_server:cast(?MODULE, {delete_global, MessageId, User}).
 delete_dm(MessageId, User, Other) -> gen_server:cast(?MODULE, {delete_dm, MessageId, User, Other}).
+edit_global(MessageId, User, Text) -> gen_server:cast(?MODULE, {edit_global, MessageId, User, Text}).
+edit_dm(MessageId, User, Other, Text) -> gen_server:cast(?MODULE, {edit_dm, MessageId, User, Other, Text}).
 
 %% Pushes User's current avatar/status to every online client (web + iOS
 %% alike) right when it changes, instead of the old fetch-once-and-cache-
@@ -184,6 +186,25 @@ handle_cast({delete_dm, MessageId, User, Other}, State = #state{users = Users}) 
                 fun(N) ->
                     case maps:find(N, Users) of
                         {ok, Pid} -> Pid ! {dm_deleted, MessageId, User, Other};
+                        error -> ok
+                    end
+                end, [User, Other]);
+        _ -> ok
+    end,
+    {noreply, State};
+handle_cast({edit_global, MessageId, User, Text}, State = #state{users = Users}) ->
+    case chat_store:edit_message(MessageId, User, Text) of
+        {ok, edited} -> notify_all(Users, {edited, MessageId, Text});
+        _ -> ok
+    end,
+    {noreply, State};
+handle_cast({edit_dm, MessageId, User, Other, Text}, State = #state{users = Users}) ->
+    case chat_store:edit_message(MessageId, User, Text) of
+        {ok, edited} ->
+            lists:foreach(
+                fun(N) ->
+                    case maps:find(N, Users) of
+                        {ok, Pid} -> Pid ! {dm_edited, MessageId, User, Other, Text};
                         error -> ok
                     end
                 end, [User, Other]);

@@ -8,11 +8,11 @@
 -module(chat_store).
 -export([init/0, save_message/5, save_message/6, load_history/1, dm_key/2,
          save_group/3, delete_group/1, load_groups/0, toggle_reaction/3,
-         delete_message/2,
+         delete_message/2, edit_message/3,
          save_link_preview/2, find_or_create_account/3,
          set_pubkey/2, get_pubkey/1, set_avatar/2, set_status/2, get_profile/1]).
 
--record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false}).
+-record(chat_message, {id, conv_key, from, text, kind, private, ts, reactions = [], preview = [], reply_to = [], deleted = false, edited = false}).
 -record(chat_group, {name, owner, members}).
 %% Key is {Provider, Sub} (e.g. {google, "10769150350006150715"}) -- Sub is
 %% the provider's own stable subject id, never the email (people can change
@@ -90,6 +90,9 @@ migrate_if_needed(Name, CurrentFields) ->
         CurrentFields ->
             ok;
         _OldFields ->
+            %% A disc table isn't readable until it has loaded; transforming
+            %% before that aborts with no_exists.
+            ok = mnesia:wait_for_tables([Name], 30000),
             NewSize = length(CurrentFields) + 1, %% +1 for the record-name element
             {atomic, ok} = mnesia:transform_table(Name,
                 fun(Rec) ->
@@ -139,7 +142,25 @@ load_history(ConvKey) ->
     Trimmed = lists:nthtail(max(0, Len - ?HISTORY_LIMIT), Sorted),
     [{R#chat_message.id, R#chat_message.from, R#chat_message.text,
       R#chat_message.private, R#chat_message.reactions, R#chat_message.preview,
-      R#chat_message.reply_to, R#chat_message.deleted =:= true} || R <- Trimmed].
+      R#chat_message.reply_to, R#chat_message.deleted =:= true,
+      case R#chat_message.ts of T when is_integer(T) -> T; _ -> 0 end,
+      R#chat_message.edited =:= true} || R <- Trimmed].
+
+%% Replaces the text of the sender's own, not-yet-deleted message. Same
+%% ownership rule as delete_message/2, enforced here. Any cached link
+%% preview is dropped since it described the old text.
+edit_message(MessageId, User, NewText) ->
+    case mnesia:dirty_read(chat_message, MessageId) of
+        [Msg = #chat_message{from = User, deleted = D}] when D =/= true ->
+            ok = mnesia:dirty_write(Msg#chat_message{text = NewText, edited = true, preview = []}),
+            {ok, edited};
+        [#chat_message{from = User}] ->
+            {error, deleted};
+        [#chat_message{}] ->
+            {error, forbidden};
+        [] ->
+            {error, not_found}
+    end.
 
 %% Deletes a message for everyone -- only the original sender may delete
 %% their own message (enforced here, not just client-side, so a malicious
