@@ -27,3 +27,10 @@ EmberApp/Ember.xcodeproj/project.xcworkspace/xcuserdata/
 EmberApp/DerivedData/
 EmberApp/build/
 *.xcuserstate
+
+# Demo tooling: downloaded placeholder photos and test scratch files (never committed)
+tools/demo/assets/
+tools/demo/go2
+tools/demo/cmds.txt
+tests/.last_id
+__pycache__/
