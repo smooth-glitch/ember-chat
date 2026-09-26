@@ -75,7 +75,10 @@ private struct ChatsTab: View {
             let archived = client.archivedKeys.contains(key)
             Group {
                 if split {
+                    // Soft tint instead of the system's solid accent fill, which
+                    // made the muted preview text unreadable on the selected row.
                     row(for: conv).tag(key)
+                        .listRowBackground(selection == key ? Theme.accentSoft : Color.clear)
                 } else {
                     NavigationLink(value: key) { row(for: conv) }
                 }
