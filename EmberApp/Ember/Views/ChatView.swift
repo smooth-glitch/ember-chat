@@ -107,6 +107,15 @@ struct ChatView: View {
                     }
                     // Start pinned to the bottom (no scroll animation at all on open).
                     .defaultScrollAnchor(.bottom)
+                    // Photos, GIFs and link cards finish loading after the chat opens and
+                    // change row heights, which left the view a message short of the bottom.
+                    // Re-pin a few times during the first couple of seconds.
+                    .task(id: convKey) {
+                        for ms in [200, 600, 1200, 2000] {
+                            try? await Task.sleep(for: .milliseconds(ms))
+                            if let last = conversation?.messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
+                    }
                     .onChange(of: conversation?.messages.count) { old, new in
                         guard let last = conversation?.messages.last else { return }
                         if isAtBottom || last.out {
@@ -307,6 +316,7 @@ struct ChatView: View {
             client.setActive(convKey)
             // Test hook (like EMBER_OPEN): pop the members sheet open for screenshots.
             if ProcessInfo.processInfo.environment["EMBER_MEMBERS"] != nil, convKey.hasPrefix("group:") { showMembers = true }
+            runScreenshotHooks()
             if convKey.hasPrefix("dm:") { client.refreshProfile(for: String(convKey.dropFirst(3))) }
             if convKey.hasPrefix("group:") { client.requestGroupInfo(String(convKey.dropFirst(6))) }
             if draft.isEmpty, let saved = client.drafts[convKey] { draft = saved }
@@ -434,6 +444,31 @@ struct ChatView: View {
         guard !matches.isEmpty else { return }
         searchIndex = (searchIndex + delta + matches.count) % matches.count
         jump(to: matches[searchIndex], proxy: proxy)
+    }
+
+    /// Launch-time hooks used to capture the docs screenshots without tapping
+    /// (see docs/DEVELOPMENT.md). Every one is inert unless its env var is set.
+    private func runScreenshotHooks() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["EMBER_ACTION"] != nil || env["EMBER_SEARCH"] != nil || env["EMBER_PROFILE"] != nil || env["EMBER_VIEWER"] != nil else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            let chats = (conversation?.messages ?? []).filter { $0.kind == .chat && !$0.deleted }
+            if env["EMBER_ACTION"] != nil {
+                // Long-press menu on the Nth-from-last message (default: last).
+                let back = Int(env["EMBER_ACTION"] ?? "") ?? 1
+                if chats.indices.contains(chats.count - back) { actionSheetMessage = chats[chats.count - back] }
+            }
+            if let q = env["EMBER_SEARCH"] {
+                searchActive = true
+                searchText = q
+            }
+            if let user = env["EMBER_PROFILE"] { profileUser = UserRef(name: user) }
+            if env["EMBER_VIEWER"] != nil, let img = chats.last(where: \.isImageMessage),
+               let url = URL(string: img.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                viewerItem = ViewerItem(url: url)
+            }
+        }
     }
 
     private func jump(to id: Int, proxy: ScrollViewProxy) {

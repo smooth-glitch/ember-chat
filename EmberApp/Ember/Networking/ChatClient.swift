@@ -104,7 +104,10 @@ final class ChatClient {
     private(set) var dmEncrypted: Set<String> = []
 
     func connect(as name: String) {
-        NotificationManager.shared.requestAuthorization()
+        // EMBER_NO_NOTIF: skip the permission prompt (it would cover screenshots).
+        if ProcessInfo.processInfo.environment["EMBER_NO_NOTIF"] == nil {
+            NotificationManager.shared.requestAuthorization()
+        }
         NotificationManager.onOpen = { [weak self] key in self?.pendingOpenKey = key }
         manualDisconnect = false
         hasConnectedOnce = false
@@ -730,6 +733,7 @@ final class ChatClient {
             myName = (json["name"] as? String) ?? myName
             send(raw: "/list")
             send(raw: "/groups")
+            send(raw: "/dms") // rebuild the DM part of the chat list after a relaunch
             send(raw: "/pubkey \(CryptoBox.publicKeyBase64(identity))")
             send(raw: "/getprofile \(myName)") // restore avatar/status set in an earlier session
 
@@ -838,6 +842,22 @@ final class ChatClient {
             let icon = (json["icon"] as? String) ?? ""
             conversations[key]?.iconURL = icon.isEmpty ? nil : resolveMediaURL(icon)
 
+        case "dms":
+            // Everyone we've ever DM'd, most recent first. Create the chat entries
+            // and pull history so the list shows real previews. Deliberately not
+            // openDM(): that also sends a read receipt, and nobody opened these.
+            let partners = ((json["list"] as? [[String: Any]]) ?? []).compactMap { $0["user"] as? String }
+            for user in partners where user != myName && !blockedUsers.contains(user) {
+                let key = Conversation.key(dm: user)
+                if conversations[key] == nil {
+                    conversations[key] = Conversation(id: key, kind: .dm, title: user)
+                    conversationOrder.append(key)
+                }
+                ensureDMKey(for: user)
+                if conversations[key]?.historyLoaded == false { send(raw: "/history dm \(user)") }
+                fetchProfile(for: user)
+            }
+
         case "group_members":
             // Live membership/owner change pushed to every member.
             guard let name = json["name"] as? String else { return }
@@ -864,6 +884,8 @@ final class ChatClient {
                 }
                 conversations[key]?.groupDescription = desc
                 conversations[key]?.iconURL = icon.isEmpty ? nil : resolveMediaURL(icon)
+                // Pull history right away so the chat list can show a real preview.
+                if conversations[key]?.historyLoaded == false { send(raw: "/history group \(name)") }
             }
 
         case "left_group":

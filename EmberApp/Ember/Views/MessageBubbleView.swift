@@ -21,6 +21,9 @@ struct MessageBubbleView: View {
     var starred = false
     var onTapReactions: () -> Void = {}
 
+    /// Set when a link-preview image can't be loaded, so the card drops the
+    /// empty image area instead of showing a blank box.
+    @State private var previewImageFailed = false
     @State private var dragOffset: CGFloat = 0
     @State private var swipeArmed = false
     @AppStorage("ember.haptics") private var hapticsOn = true
@@ -235,11 +238,14 @@ struct MessageBubbleView: View {
 
     private func linkCard(_ preview: ChatMessage.LinkPreview) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let image = URL(string: preview.image), !preview.image.isEmpty {
+            if let image = URL(string: preview.image), !preview.image.isEmpty, !previewImageFailed {
                 AsyncImage(url: image) { phase in
-                    if case .success(let img) = phase {
+                    switch phase {
+                    case .success(let img):
                         img.resizable().aspectRatio(contentMode: .fill)
-                    } else {
+                    case .failure:
+                        Color.clear.onAppear { previewImageFailed = true }
+                    default:
                         Color.black.opacity(0.06)
                     }
                 }

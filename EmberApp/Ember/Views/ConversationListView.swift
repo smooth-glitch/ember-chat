@@ -191,7 +191,8 @@ private struct ChatsTab: View {
 
     private func preview(for conv: Conversation) -> String {
         if let draft = client.drafts[conv.id], !draft.isEmpty { return "Draft: \(draft)" }
-        guard let last = conv.messages.last else { return " " }
+        // Skip join/leave notices: show the last thing someone actually said.
+        guard let last = conv.messages.last(where: { $0.kind == .chat }) ?? conv.messages.last else { return " " }
         if last.deleted { return "This message was deleted" }
         if last.isImageMessage { return "📷 Photo" }
         if last.isAudioMessage { return "🎤 Voice message" }
@@ -223,7 +224,7 @@ private struct ChatsTab: View {
                 Circle().fill(Theme.accentGradient).frame(width: 44, height: 44)
                     .overlay { Image(systemName: "globe").font(.system(size: 16)).foregroundStyle(.white) }
             case .dm:
-                avatar(conv.title, size: 44)
+                avatar(conv.title, size: 44, url: client.profiles[conv.title]?.avatar)
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(conv.title).font(.system(size: 15.5, weight: .semibold)).foregroundStyle(Theme.text)
